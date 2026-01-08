@@ -69,6 +69,22 @@ VisionQuant-Pro/
     └── config.yaml               # 配置文件
 ```
 
+### 📸 项目截图
+
+#### 主界面 - 单只股票深度分析
+![主界面](docs/images/screenshot1-main.png)
+
+#### 批量组合分析 - 智能配置
+![批量分析](docs/images/screenshot2-portfolio.png)
+
+#### 策略回测 - VQ策略收益曲线
+![回测曲线](docs/images/screenshot3-backtest.png)
+
+#### AI对话助手 - 智能问答
+![AI助手](docs/images/screenshot4-ai-chat.png)
+
+---
+
 ### 🚀 快速开始
 
 #### 1. 环境要求
@@ -230,7 +246,7 @@ VQ策略是一个自适应双模态策略：
 ### 📮 联系方式
 
 - GitHub Issues: [提交问题](https://github.com/panyisheng095-ux/VisionQuant-Pro/issues)
-- 邮箱: [your-email@example.com]
+- 邮箱: panyisheng095@gmail.com
 
 ### 🌟 Star History
 
