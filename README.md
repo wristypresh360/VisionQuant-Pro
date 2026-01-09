@@ -2,13 +2,27 @@
 
 <div align="center">
 
-**基于深度学习视觉识别的AI量化投资系统**
+**🔥 让AI看懂K线图 | Let AI Read the Charts 🔥**
 
+基于深度学习视觉识别的智能量化投资系统  
 Vision-Based Quantitative Trading System with Deep Learning
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/panyisheng095-ux/VisionQuant-Pro?style=social)](https://github.com/panyisheng095-ux/VisionQuant-Pro/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/panyisheng095-ux/VisionQuant-Pro?style=social)](https://github.com/panyisheng095-ux/VisionQuant-Pro/network)
+
+**[📖 技术报告 PDF](docs/papers/VisionQuant-Pro_Technical_Report.pdf)** | 
+**[🌐 在线Demo（即将上线）](#)** | 
+**[📺 演示视频（制作中）](#)** |
+**[💬 加入讨论](https://github.com/panyisheng095-ux/VisionQuant-Pro/discussions)**
+
+---
+
+⭐ **如果这个项目对你有帮助，请给个Star支持一下！** ⭐
+
+---
 
 [English](#english) | [中文](#中文)
 
