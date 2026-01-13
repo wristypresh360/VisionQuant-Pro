@@ -252,6 +252,9 @@ class IndustrialPredictorReduced:
         print(f"🎉 全部完成！结果保存在: {PREDICTION_CACHE_FILE}")
 
 
+# 为了向后兼容，提供 PredictEngine 别名
+PredictEngine = IndustrialPredictorReduced
+
 if __name__ == "__main__":
     engine = IndustrialPredictorReduced()
     engine.run_pipeline()

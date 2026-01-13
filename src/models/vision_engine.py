@@ -17,32 +17,59 @@ os.environ['OMP_NUM_THREADS'] = '1'
 # === 2. 路径配置 ===
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
+# 优先使用 AttentionCAE，如果不存在则回退到 QuantCAE
+ATTENTION_MODEL_PATH = os.path.join(PROJECT_ROOT, "data", "models", "attention_cae_best.pth")
+CAE_MODEL_PATH = os.path.join(PROJECT_ROOT, "data", "models", "cae_best.pth")
+# 索引文件路径（优先用新索引）
+ATTENTION_INDEX_FILE = os.path.join(PROJECT_ROOT, "data", "indices", "cae_faiss_attention.bin")
+ATTENTION_META_CSV = os.path.join(PROJECT_ROOT, "data", "indices", "meta_data_attention.csv")
 INDEX_FILE = os.path.join(PROJECT_ROOT, "data", "indices", "cae_faiss.bin")
 META_CSV = os.path.join(PROJECT_ROOT, "data", "indices", "meta_data.csv")
 META_PKL = os.path.join(PROJECT_ROOT, "data", "indices", "meta.pkl")
-MODEL_PATH = os.path.join(PROJECT_ROOT, "data", "models", "cae_best.pth")
 
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
-from src.models.autoencoder import QuantCAE
+from src.models.attention_cae import AttentionCAE
 
 
 class VisionEngine:
     def __init__(self):
         self.device = torch.device("cpu")
-        print(f"👁️ [VisionEngine] 启动中... 加载模型: QuantCAE")
-
-        # 1. 加载模型
-        self.model = QuantCAE().to(self.device)
-        if os.path.exists(MODEL_PATH):
+        
+        # 1. 优先加载 AttentionCAE，如果不存在则回退到 QuantCAE
+        use_attention = os.path.exists(ATTENTION_MODEL_PATH)
+        
+        if use_attention:
+            print(f"👁️ [VisionEngine] 启动中... 加载模型: AttentionCAE")
+            self.model = AttentionCAE(latent_dim=1024, num_attention_heads=8).to(self.device)
             try:
-                state_dict = torch.load(MODEL_PATH, map_location=self.device)
+                state_dict = torch.load(ATTENTION_MODEL_PATH, map_location=self.device)
                 self.model.load_state_dict(state_dict)
                 self.model.eval()
+                print(f"✅ AttentionCAE 加载成功")
             except Exception as e:
-                print(f"❌ 权重加载失败: {e}")
-
-        self.pool = nn.AdaptiveAvgPool1d(1024)
+                print(f"❌ AttentionCAE 权重加载失败: {e}，回退到 QuantCAE")
+                use_attention = False
+        
+        if not use_attention:
+            print(f"👁️ [VisionEngine] 启动中... 加载模型: QuantCAE (回退模式)")
+            from src.models.autoencoder import QuantCAE
+            self.model = QuantCAE().to(self.device)
+            if os.path.exists(CAE_MODEL_PATH):
+                try:
+                    state_dict = torch.load(CAE_MODEL_PATH, map_location=self.device)
+                    self.model.load_state_dict(state_dict)
+                    self.model.eval()
+                    print(f"✅ QuantCAE 加载成功")
+                except Exception as e:
+                    print(f"❌ QuantCAE 权重加载失败: {e}")
+        
+        # QuantCAE 需要 pool 降维，AttentionCAE 已经输出 1024 维
+        self.use_attention = use_attention
+        if not use_attention:
+            self.pool = nn.AdaptiveAvgPool1d(1024)
+        else:
+            self.pool = None  # AttentionCAE 不需要 pool
 
         self.preprocess = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -53,23 +80,29 @@ class VisionEngine:
         self.meta_data = []
 
     def reload_index(self):
-        if not os.path.exists(INDEX_FILE):
+        # 优先加载 AttentionCAE 索引
+        index_file = ATTENTION_INDEX_FILE if os.path.exists(ATTENTION_INDEX_FILE) else INDEX_FILE
+        meta_file = ATTENTION_META_CSV if os.path.exists(ATTENTION_META_CSV) else META_CSV
+        
+        if not os.path.exists(index_file):
+            print(f"❌ 索引文件不存在: {index_file}")
             return False
 
-        print(f"📥 [VisionEngine] 加载索引...")
+        print(f"📥 [VisionEngine] 加载索引: {os.path.basename(index_file)}")
         try:
-            self.index = faiss.read_index(INDEX_FILE)
+            self.index = faiss.read_index(index_file)
         except Exception as e:
             print(f"❌ FAISS 加载失败: {e}")
             return False
 
-        if os.path.exists(META_CSV):
-            df = pd.read_csv(META_CSV, dtype=str)
+        if os.path.exists(meta_file):
+            df = pd.read_csv(meta_file, dtype=str)
             self.meta_data = df.to_dict('records')
         elif os.path.exists(META_PKL):
             with open(META_PKL, 'rb') as f:
                 self.meta_data = pickle.load(f)
         else:
+            print(f"❌ 元数据文件不存在: {meta_file}")
             return False
 
         print(f"✅ 知识库就绪: {len(self.meta_data)} 条记录")
@@ -80,9 +113,15 @@ class VisionEngine:
             img = Image.open(img_path).convert('RGB')
             input_tensor = self.preprocess(img).unsqueeze(0).to(self.device)
             with torch.no_grad():
-                full_feature = self.model.encode(input_tensor)
-                reduced_feature = self.pool(full_feature.unsqueeze(1)).squeeze(1)
-                return reduced_feature.cpu().numpy().flatten()
+                if self.use_attention:
+                    # AttentionCAE.encode() 已经返回 1024 维的 L2 归一化向量
+                    feature = self.model.encode(input_tensor)
+                    return feature.cpu().numpy().flatten()
+                else:
+                    # QuantCAE.encode() 返回 50176 维，需要 pool 降维
+                    full_feature = self.model.encode(input_tensor)
+                    reduced_feature = self.pool(full_feature.unsqueeze(1)).squeeze(1)
+                    return reduced_feature.cpu().numpy().flatten()
         except:
             return None
 
@@ -112,7 +151,19 @@ class VisionEngine:
         seen_dates = {}
         ISOLATION_DAYS = 20
 
-        # === 优化2: 混合评分 = 视觉相似度 + 价格相关性 ===
+        # === 优化2: 视觉候选 +（可选）价格相关性 ===
+        # 注意：对“非热门股/冷门日期”，在循环里频繁拉取历史数据很容易失败。
+        # 我们将相关性视为“可选增强”：算得出来就提升排序，算不出来就回退到纯视觉TopK，
+        # 这样才能保证对比图几乎不可能空。
+        loader = None
+        price_df_cache = {}
+        if query_prices is not None and len(query_prices) == 20:
+            try:
+                from src.data.data_loader import DataLoader
+                loader = DataLoader()
+            except Exception:
+                loader = None
+
         for vector_score, idx in zip(D[0], I[0]):
             if idx >= len(self.meta_data): continue
 
@@ -138,53 +189,51 @@ class VisionEngine:
             if is_conflict:
                 continue
 
-            # === 优化3: 计算价格序列相关性（如果提供）===
-            correlation = 0.0
-            if query_prices is not None and len(query_prices) == 20:
+            # === 优化3: 计算价格序列相关性（可选）===
+            correlation = None
+            if loader is not None:
                 try:
-                    # 加载匹配模式的价格序列
-                    from src.data.data_loader import DataLoader
-                    loader = DataLoader()
-                    match_df = loader.get_stock_data(sym)
-                    if not match_df.empty:
-                        match_df.index = pd.to_datetime(match_df.index)
-                        if current_dt in match_df.index:
-                            loc = match_df.index.get_loc(current_dt)
-                            if loc >= 19:  # 确保有足够的历史数据
-                                match_prices = match_df.iloc[loc-19:loc+1]['Close'].values
-                                # 归一化（避免绝对价格差异影响相关性）
-                                query_norm = (query_prices - query_prices.mean()) / (query_prices.std() + 1e-8)
-                                match_norm = (match_prices - match_prices.mean()) / (match_prices.std() + 1e-8)
-                                # 计算皮尔逊相关系数
-                                correlation = np.corrcoef(query_norm, match_norm)[0, 1]
-                                if np.isnan(correlation):
-                                    correlation = 0.0
-                except Exception as e:
-                    correlation = 0.0
+                    if sym not in price_df_cache:
+                        dfp = loader.get_stock_data(sym)
+                        if dfp is None or dfp.empty:
+                            price_df_cache[sym] = None
+                        else:
+                            dfp.index = pd.to_datetime(dfp.index)
+                            price_df_cache[sym] = dfp
+                    else:
+                        dfp = price_df_cache[sym]
 
-            # === 优化4: 混合评分（视觉60% + 相关性40%）===
-            # 如果相关性<0.3，说明形态相反，大幅降分
-            if correlation < 0.3:
-                final_score = vector_score * 0.3  # 形态相反，大幅降分
+                    if dfp is not None and (current_dt in dfp.index):
+                        loc = dfp.index.get_loc(current_dt)
+                        if loc >= 19:
+                            match_prices = dfp.iloc[loc - 19: loc + 1]['Close'].values
+                            query_norm = (query_prices - query_prices.mean()) / (query_prices.std() + 1e-8)
+                            match_norm = (match_prices - match_prices.mean()) / (match_prices.std() + 1e-8)
+                            corr = np.corrcoef(query_norm, match_norm)[0, 1]
+                            if not np.isnan(corr):
+                                correlation = float(corr)
+                except Exception:
+                    correlation = None
+
+            # === 优化4: 评分策略（保证不空）===
+            # 相关性算不出来：退回纯视觉相似度
+            if correlation is None:
+                final_score = float(vector_score)
             else:
-                # 正相关时，加权融合
-                final_score = 0.6 * vector_score + 0.4 * correlation
-
-            # === 优化5: 提高相似度阈值，只保留高质量匹配 ===
-            if final_score < 0.85:  # 提高阈值，过滤低质量结果
-                continue
+                # 相关性作为增强项，提高排序稳定性（但不作为硬过滤条件）
+                final_score = 0.3 * float(vector_score) + 0.7 * float(correlation)
 
             candidates.append({
                 "symbol": sym,
                 "date": date_str,
                 "score": float(final_score),
                 "vector_score": float(vector_score),
-                "correlation": float(correlation)
+                "correlation": (None if correlation is None else float(correlation))
             })
 
             seen_dates.setdefault(sym, []).append(current_dt)
 
-        # === 优化6: 按最终分数重新排序 ===
+        # === 优化6: 排序并返回（保证Top-K） ===
         candidates.sort(key=lambda x: x['score'], reverse=True)
 
         # 返回Top-K

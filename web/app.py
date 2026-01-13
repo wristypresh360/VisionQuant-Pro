@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 import pickle
 from streamlit_mic_recorder import mic_recorder
+import importlib
 
 # ================= 路径与环境配置 =================
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -31,6 +32,25 @@ except ImportError as e:
     st.error(f"❌ 系统模块加载失败: {e}. 请确保 src 目录下文件完整。")
     st.stop()
 
+# ================= 代码版本（用于缓存失效 + 热更新） =================
+def _code_version_key() -> str:
+    """
+    Streamlit 会缓存 resource；但 Python import 默认不会热更新。
+    这里用源码 mtime 作为 cache key，并在 load_all_engines 内部 importlib.reload，
+    以确保你改了 src 代码后无需手动重启也能生效。
+    """
+    paths = [
+        os.path.join(PROJECT_ROOT, "src", "models", "vision_engine.py"),
+        os.path.join(PROJECT_ROOT, "src", "strategies", "fundamental.py"),
+    ]
+    parts = []
+    for p in paths:
+        try:
+            parts.append(str(os.path.getmtime(p)))
+        except Exception:
+            parts.append("0")
+    return "|".join(parts)
+
 # ================= 页面配置 =================
 st.set_page_config(page_title="VisionQuant Pro", layout="wide", page_icon="🦄")
 
@@ -48,17 +68,26 @@ st.markdown("""
 
 # ================= 引擎初始化 =================
 @st.cache_resource
-def load_all_engines():
-    v = VisionEngine()
+def load_all_engines(_code_version: str):
+    # 强制热重载关键模块（Vision/Fundamental），避免“改了代码网页还是旧效果”
+    ve_mod = importlib.import_module("src.models.vision_engine")
+    fm_mod = importlib.import_module("src.strategies.fundamental")
+    importlib.reload(ve_mod)
+    importlib.reload(fm_mod)
+
+    VisionEngineReloaded = ve_mod.VisionEngine
+    FundamentalMinerReloaded = fm_mod.FundamentalMiner
+
+    v = VisionEngineReloaded()
     v.reload_index()
     return {
         "loader": DataLoader(), "vision": v, "factor": FactorMiner(),
-        "fund": FundamentalMiner(), "agent": QuantAgent(), "news": NewsHarvester(),
+        "fund": FundamentalMinerReloaded(), "agent": QuantAgent(), "news": NewsHarvester(),
         "audio": AudioManager()
     }
 
 
-eng = load_all_engines()
+eng = load_all_engines(_code_version=_code_version_key())
 
 # === Session State 初始化 ===
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
@@ -98,7 +127,7 @@ with st.sidebar:
         max_positions = st.slider("最大持仓数量", 5, 15, 10)
         min_weight = st.slider("最小仓位 (%)", 3, 10, 5) / 100
         max_weight = st.slider("最大仓位 (%)", 15, 30, 20) / 100
-    
+
     if mode == "🧪 策略模拟回测":
         st.divider()
         st.subheader("3. 回测参数")
@@ -110,6 +139,21 @@ with st.sidebar:
         bt_vision = st.slider("AI 介入阈值 (Win%)", 50, 70, 57)
 
     st.divider()
+    # ================== 强制重载（解决缓存导致的 N/A / 旧逻辑不生效） ==================
+    if st.button("🔄 强制重载引擎（清缓存）", use_container_width=True, help="当你更新代码/数据后，点击此按钮让 Fundamental/Vision 等引擎重新初始化"):
+        try:
+            load_all_engines.clear()
+        except Exception:
+            # 兼容不同streamlit版本
+            st.cache_resource.clear()
+
+        # 清空常见结果缓存，避免旧数据混入
+        for k in ["res", "batch_results", "multi_tier_result", "portfolio_metrics", "portfolio_weights"]:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.session_state.has_run = False
+        st.rerun()
+
     run_btn = st.button("🚀 立即开始分析", type="primary", use_container_width=True)
 
     if st.button("🧹 清空对话历史"):
@@ -125,7 +169,7 @@ with st.sidebar:
                 del st.session_state.res
             st.session_state.current_symbol = None
             st.session_state.has_run = False
-            st.rerun()
+        st.rerun()
 
 # =========================================================
 #  主界面逻辑
@@ -293,7 +337,12 @@ if mode == "🔍 实盘深度研判":
         
         d = st.session_state.res
 
-        st.markdown(f"# 📊 深度投研报告: {d['name']} ({symbol})")
+        # 标题：避免出现 “300286 (300286)” 这种重复
+        display_name = (d.get("name") or "").strip()
+        if (not display_name) or (display_name == symbol):
+            st.markdown(f"# 📊 深度投研报告: {symbol}")
+        else:
+            st.markdown(f"# 📊 深度投研报告: {display_name} ({symbol})")
 
         # 1. 视觉
         st.subheader("1. 视觉模式识别")
@@ -319,20 +368,39 @@ if mode == "🔍 实盘深度研判":
             st.subheader("2. 量化多因子看板")
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("AI 总评分", f"{d['score']}/10", delta=d['act'])
-            m2.metric("ROE", f"{d['fund'].get('roe')}%")
-            m3.metric("PE", f"{d['fund'].get('pe_ttm')}")
+            # 基本面抓取失败时，不要把默认0展示成真实值
+            fund_ok = (d.get("fund", {}) or {}).get("_ok", {})
+            spot_ok = bool(fund_ok.get("spot"))
+            finance_ok = bool(fund_ok.get("finance"))
+
+            roe_val = d["fund"].get("roe")
+            pe_val = d["fund"].get("pe_ttm")
+
+            m2.metric("ROE", f"{roe_val}%" if finance_ok else "N/A")
+            m3.metric("PE", f"{pe_val}" if spot_ok else "N/A")
             m4.metric("趋势", "看涨" if d['df_f'].iloc[-1]['MA_Signal'] > 0 else "看跌")
 
             with st.expander("📊 杜邦分析 & 因子明细"):
                 col_a, col_b = st.columns(2)
                 with col_a:
                     st.write("**杜邦拆解**")
-                    st.write(f"净利率: {d['fund'].get('net_profit_margin')}%")
-                    st.write(f"周转率: {d['fund'].get('asset_turnover')}")
-                    st.write(f"权益乘数: {d['fund'].get('leverage')}x")
+                    if finance_ok:
+                        st.write(f"净利率: {d['fund'].get('net_profit_margin')}%")
+                        st.write(f"周转率: {d['fund'].get('asset_turnover')}")
+                        st.write(f"权益乘数: {d['fund'].get('leverage')}x")
+                    else:
+                        st.info("⚠️ 财务报表指标抓取失败，已隐藏杜邦拆解（避免用默认值0误导）。")
                 with col_b:
                     st.write("**技术因子**")
                     st.json(d['det'])
+
+            # 基本面抓取失败的提示（收敛在量化看板区，不影响其他模块）
+            if (not spot_ok) or (not finance_ok):
+                errs = (d.get("fund", {}) or {}).get("_err", [])
+                st.warning("⚠️ 基本面数据获取不完整：可能是 akshare 拉取失败/网络波动/接口字段变更。已用 N/A 展示缺失项。")
+                if errs:
+                    with st.expander("查看基本面抓取错误详情"):
+                        st.write("\n".join([f"- {e}" for e in errs]))
 
         with c_right:
             st.subheader(f"3. 行业对标 ({d['ind']})")
