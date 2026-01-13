@@ -82,5 +82,15 @@ htmlcov/
 docs/论文修改综合方案.md
 docs/行为金融学论述模板.md
 
+# Internal planning documents (内部规划文档，不公开)
+docs/完整实验任务清单.md
+docs/当前状态与下一步选项.md
+docs/查看索引重建进度.md
+docs/消融实验方案.md
+docs/论文增强完成总结.md
+docs/RD-Agent对比分析与改进方案.md
+docs/宣传文案模板.md
+docs/Git提交指南.md
+
 # Debug files
 debug_audio_*.wav
