@@ -1,4 +1,4 @@
-# VisionQuant-Pro
+# VisionQuant-Pro v2.0
 
 <div align="center">
 
@@ -6,278 +6,211 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/panyisheng095-ux/VisionQuant-Pro?style=social)](https://github.com/panyisheng095-ux/VisionQuant-Pro/stargazers)
 
-**[📖 Technical Report](docs/papers/VisionQuant-Pro_Technical_Report.pdf)** | 
-**[💬 Discussions](https://github.com/panyisheng095-ux/VisionQuant-Pro/discussions)** |
-**[🐛 Issues](https://github.com/panyisheng095-ux/VisionQuant-Pro/issues)**
+*Dual-Stream Architecture | GAF Encoding | Triple Barrier | Walk-Forward Validation*
 
 </div>
 
 ---
 
-## Overview
+## 📊 Current Status
 
-VisionQuant-Pro is an enterprise-grade quantitative trading system that leverages **deep learning** and **computer vision** to analyze candlestick chart patterns for stock market prediction. The system employs a self-attention enhanced Convolutional Autoencoder (AttentionCAE) to extract visual features from K-line charts, combined with FAISS-based similarity search to identify historically similar patterns and predict future returns.
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **v1.5 Web Interface** | ✅ Working | Uses 400K K-line images, fully functional |
+| **v1.5 AttentionCAE Model** | ✅ Trained | 5 epochs on 400K images |
+| **v1.5 FAISS Index** | ✅ Built | 400K vectors indexed |
+| **v2.0 Framework Code** | ✅ Complete | ~4,600 lines, all imports verified |
+| **v2.0 GAF Images** | ⏳ Pending | Run `scripts/prepare_data.py` to generate |
+| **v2.0 Dual-Stream Model** | ⏳ Pending | Run `scripts/train_dual_stream.py` to train |
 
-### Key Innovations
-
-- **Attention-Enhanced CAE**: Multi-head self-attention mechanism captures long-range dependencies in chart patterns (e.g., Head-and-Shoulders formations)
-- **Hybrid Similarity Search**: Combines visual feature similarity (70%) with price series correlation (30%) for robust pattern matching
-- **Multi-Factor Scoring**: Integrates visual patterns (V), fundamental analysis (F), and technical indicators (Q) into a unified 10-point scoring system
-- **Markowitz Portfolio Optimization**: Dynamic portfolio allocation with risk-adjusted returns maximization
-- **Adaptive Trading Strategy**: Dual-mode strategy that adjusts AI weights based on market regimes (bull/bear)
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    VisionQuant-Pro System                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │  Data Layer  │───▶│ Model Layer │───▶│Strategy Layer│  │
-│  │              │    │              │    │              │  │
-│  │ • Stock Data │    │ • AttentionCAE│   │ • Multi-Factor│  │
-│  │ • K-line Img│    │ • VisionEngine│   │ • Portfolio   │  │
-│  │ • FAISS Index│    │ • PredictEng │   │ • Backtester  │  │
-│  └──────────────┘    └──────────────┘    └──────────────┘  │
-│         │                   │                   │           │
-│         └───────────────────┴───────────────────┘           │
-│                            │                                 │
-│                   ┌────────▼────────┐                        │
-│                   │  Web Interface  │                        │
-│                   │   (Streamlit)   │                        │
-│                   └─────────────────┘                        │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Core Components
-
-1. **AttentionCAE Model**: 8-head self-attention enhanced convolutional autoencoder
-   - Encoder: 4-layer CNN (3→32→64→128→256 channels)
-   - Attention: Multi-head self-attention (8 heads, 256 dims)
-   - Decoder: 4-layer transpose CNN
-   - Output: 1024-dimensional feature vectors
-
-2. **VisionEngine**: FAISS-based similarity search engine
-   - Index: 400,000+ historical candlestick patterns
-   - Search: Millisecond-level Top-K retrieval
-   - Time Isolation: NMS algorithm prevents overlapping patterns
-
-3. **Multi-Factor Scoring System**:
-   - Visual Score (V): 0-3 points based on predicted win rate
-   - Fundamental Score (F): 0-4 points (ROE, PE ratio)
-   - Quantitative Score (Q): 0-3 points (MA60, RSI, MACD)
-   - Total: 0-10 points → BUY (≥7) / WAIT (5-6) / SELL (<5)
-
-4. **Portfolio Optimizer**: Markowitz mean-variance optimization
-   - Objective: Maximize Sharpe ratio
-   - Constraints: Position limits (5%-20%), max 10 positions
-   - Expected returns: Estimated from historical similar patterns
+> **Note**: v2.0 is currently a **framework implementation**. The architecture and training scripts are complete, but model training has not been executed yet. The existing v1.5 system remains fully functional.
 
 ---
 
-## Features
+## 🇨🇳 版本迭代说明 (Version Evolution in Chinese)
 
-### 🎯 Visual Pattern Recognition
-- **Deep Learning Feature Extraction**: AttentionCAE automatically learns morphological features from 224×224 RGB candlestick images
-- **Historical Pattern Matching**: FAISS vector database enables millisecond-level retrieval of 400,000+ historical patterns
-- **Win Rate Prediction**: Statistical analysis of similar historical patterns to predict future price movements
+<details>
+<summary>点击展开查看中文版本对比</summary>
 
-### 📊 Intelligent Analysis System
-- **Multi-Factor Integration**: Combines visual patterns, fundamental analysis, and technical indicators
-- **Batch Portfolio Analysis**: Parallel analysis of 30+ stocks with automatic portfolio optimization
-- **Industry Comparison**: Automatic peer analysis with industry-specific metrics
+### v1.0 → v2.0 核心改进
 
-### 🤖 AI-Powered Decision Making
-- **LangChain Integration**: Google Gemini-based intelligent investment advisor
-- **Context-Aware Analysis**: Understands analysis results and provides personalized recommendations
-- **Natural Language Interface**: Interactive chat for investment queries
+| 维度 | v1.0 问题 | v2.0 解决方案 |
+|------|----------|--------------|
+| **信息丢失** | K线截图丢失精确数值 | GAF数学编码 + 双流保留原始OHLCV |
+| **标签简单** | 简单涨跌二分类 | Triple Barrier三分类（止盈/止损/震荡） |
+| **未来函数** | 随机划分数据集 | Walk-Forward滚动验证 |
+| **缺乏理论** | "看图说话"式评分 | 有数学定义的GAF/Triple Barrier |
+| **不可解释** | 黑盒模型 | Grad-CAM热力图 + 注意力权重可视化 |
+| **回测简陋** | 自写简单回测 | Backtrader专业框架 |
 
-### 📈 Strategy Backtesting
-- **VQ Strategy**: Adaptive vision-quant strategy with dynamic position sizing
-- **Comprehensive Metrics**: Alpha, Sharpe ratio, maximum drawdown, win rate
-- **Time-Series Analysis**: Full backtesting on 2022-2025 historical data
+### 架构演进图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        VERSION EVOLUTION                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  v1.0 (2026-01-05)          v1.5 (2026-01-10)                    │
+│  ─────────────────          ─────────────────                    │
+│  K线截图                     K线截图                              │
+│     │                           │                                 │
+│     ↓                           ↓                                 │
+│  QuantCAE                   AttentionCAE                          │
+│  (4层CNN)                   (CAE + 8头注意力)                     │
+│     │                           │                                 │
+│     ↓                           ↓                                 │
+│  FAISS检索                  FAISS检索                             │
+│     │                           │                                 │
+│     ↓                           ↓                                 │
+│  胜率预测                    V+F+Q多因子评分                       │
+│                                                                   │
+│                          v2.0 (2026-01-13)                        │
+│                          ─────────────────                        │
+│                          OHLCV原始数据                            │
+│                               │                                   │
+│                    ┌──────────┴──────────┐                        │
+│                    ↓                     ↓                        │
+│               GAF图像               标准化序列                     │
+│                    │                     │                        │
+│                    ↓                     ↓                        │
+│               ResNet18              TCN+Attention                  │
+│                    │                     │                        │
+│                    └──────────┬──────────┘                        │
+│                               ↓                                   │
+│                      Cross-Modal Attention                        │
+│                               │                                   │
+│                               ↓                                   │
+│                      Triple Barrier预测                           │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 新增代码量统计
+
+| 文件 | 功能 | 代码行数 |
+|------|------|---------|
+| `gaf_encoder.py` | GAF图像编码 | 491 |
+| `triple_barrier.py` | Triple Barrier标签 | 549 |
+| `walk_forward.py` | Walk-Forward验证 | 638 |
+| `temporal_encoder.py` | TCN+Attention时序编码 | 579 |
+| `dual_stream_network.py` | 双流融合网络 | 711 |
+| `backtrader_strategy.py` | Backtrader策略集成 | 555 |
+| `train_dual_stream.py` | 训练脚本 | 523 |
+| `grad_cam.py` | Grad-CAM可视化 | 517 |
+| **总计** | | **~4,600** |
+
+</details>
 
 ---
 
-## Quick Start
+## What's New in v2.0
 
-### Prerequisites
-
-- Python 3.9+
-- PyTorch 2.0+ (with MPS/CUDA support recommended)
-- 8GB+ RAM
-- 10GB+ disk space for data
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/panyisheng095-ux/VisionQuant-Pro.git
-cd VisionQuant-Pro
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate  # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Configuration
-
-```bash
-# Optional: Configure API key for AI chat (create .env file)
-echo "GOOGLE_API_KEY=your_api_key_here" > .env
-```
-
-### Data Preparation
-
-```bash
-# Download sample data and create directory structure
-python scripts/prepare_data.py
-```
-
-**Note**: The full dataset (154GB) is not included in the repository. Sample data includes 5 stocks for quick testing. For full functionality, you need to:
-1. Train the AttentionCAE model: `python scripts/train_attention_cae.py`
-2. Rebuild the FAISS index: `python scripts/rebuild_index_attention.py`
-
-### Launch Web Interface
-
-```bash
-# Recommended: Use the launcher script (handles Python path automatically)
-python run.py
-
-# Alternative: Direct Streamlit launch
-PYTHONPATH=. streamlit run web/app.py
-```
-
-Visit: http://localhost:8501
+- **Dual-Stream Architecture**: Vision Stream (GAF images) + Temporal Stream (TCN+Attention)
+- **GAF Encoding**: Gramian Angular Field - mathematically rigorous time-to-image conversion
+- **Triple Barrier Method**: Industry-standard labeling (profit-taking, stop-loss, time horizon)
+- **Walk-Forward Validation**: Prevent look-ahead bias with rolling window training
+- **Backtrader Integration**: Professional backtesting framework
+- **Grad-CAM Explainability**: Visualize what the model "sees" in charts
 
 ---
 
-## Usage Examples
+## Architecture Overview
 
-### Single Stock Analysis
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      VisionQuant-Pro v2.0                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────────────┐         ┌─────────────────────┐           │
+│  │    Vision Stream    │         │   Temporal Stream   │           │
+│  │                     │         │                     │           │
+│  │  OHLCV → GAF Image  │         │  OHLCV → Sequence   │           │
+│  │       ↓            │         │       ↓            │           │
+│  │  ResNet18/ViT      │         │  TCN + Attention   │           │
+│  │       ↓            │         │       ↓            │           │
+│  │  [B, 512] features │         │  [B, 256] features │           │
+│  └──────────┬──────────┘         └──────────┬──────────┘           │
+│             │                               │                       │
+│             └───────────────┬───────────────┘                       │
+│                             ↓                                       │
+│             ┌───────────────────────────────┐                       │
+│             │   Cross-Modal Attention       │                       │
+│             │      [B, 768] fused           │                       │
+│             └───────────────┬───────────────┘                       │
+│                             │                                       │
+│        ┌────────────────────┼────────────────────┐                  │
+│        ↓                    ↓                    ↓                  │
+│  ┌───────────┐       ┌───────────┐       ┌───────────┐             │
+│  │  FAISS    │       │ Triple    │       │   Risk    │             │
+│  │  Search   │       │ Barrier   │       │   Eval    │             │
+│  └───────────┘       └───────────┘       └───────────┘             │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Innovations
+
+### 1. GAF Encoding (Gramian Angular Field)
+
+Unlike simple K-line chart screenshots, GAF provides **mathematically rigorous** time-to-image conversion:
 
 ```python
-# In the Web interface, enter stock code
-symbol = "600519"  # Kweichow Moutai
-
-# System returns:
-# - Top 10 similar historical patterns (with similarity scores)
-# - Multi-factor scorecard (V+F+Q, 0-10 points)
-# - Trading recommendation (BUY/WAIT/SELL)
-# - Expected return and win rate prediction
-# - AI-powered analysis and interpretation
+# Mathematical formulation
+x_scaled = (x - min) / (max - min) * 2 - 1  # Normalize to [-1, 1]
+φ = arccos(x_scaled)                         # Polar angle
+G[i,j] = cos(φ_i + φ_j)                      # GASF matrix
 ```
 
-### Batch Portfolio Analysis
+**3-Channel GAF Image**:
+- **R**: GASF (Gramian Angular Summation Field) - captures overall trends
+- **G**: GADF (Gramian Angular Difference Field) - captures local changes
+- **B**: MTF (Markov Transition Field) - captures state transitions
+
+### 2. Dual-Stream Fusion
+
+**Vision Stream**: Processes GAF images with ResNet18/ViT
+- Captures spatial patterns (Double Bottom, Head-and-Shoulders, etc.)
+- Pretrained on ImageNet for transfer learning
+
+**Temporal Stream**: Processes raw OHLCV with TCN + Self-Attention
+- TCN: Dilated causal convolutions for local patterns
+- Self-Attention: Long-range dependencies across time
+
+**Cross-Modal Attention**: Learns complementary information
+- Gate mechanism balances vision vs. temporal importance
+- Enables interpretation: "Which modality contributed more?"
+
+### 3. Triple Barrier Labeling
+
+Standard in quantitative finance (López de Prado, 2018):
 
 ```python
-# Input multiple stock codes (one per line)
-symbols = """
-600519
-000858
-601899
-600036
-...
-"""
-
-# Configure parameters:
-# - Max positions: 10
-# - Position limits: 5%-20% per stock
-
-# System outputs:
-# - Core recommended portfolio (score ≥7, action=BUY)
-# - Enhanced alternative portfolio (score ≥6, action≠SELL)
-# - Optimal weight allocation (Markowitz optimization)
-# - Portfolio metrics (expected return, risk, Sharpe ratio)
+def get_label(price_series, pt=0.05, sl=0.03, max_holding=20):
+    """
+    pt: profit-taking threshold (5%)
+    sl: stop-loss threshold (3%)
+    max_holding: maximum holding period (20 days)
+    
+    Returns:
+    - 1: Hit profit-taking first → Bullish
+    - -1: Hit stop-loss first → Bearish
+    - 0: Hit time horizon first → Neutral
+    """
 ```
 
-### Strategy Backtesting
+### 4. Walk-Forward Validation
 
-```python
-# Configure backtest parameters
-start_date = "2022-01-01"
-end_date = "2025-01-01"
-initial_capital = 100000
-
-# VQ Strategy automatically executes
-# Outputs:
-# - Strategy return curve vs. buy-and-hold baseline
-# - Performance metrics (Alpha, Sharpe, max drawdown)
-# - Trade log and statistics
-```
-
----
-
-## Technical Details
-
-### AttentionCAE Architecture
-
-The AttentionCAE model consists of:
-
-1. **Convolutional Encoder**: 4 layers with stride-2 downsampling
-   - Input: 224×224×3 RGB image
-   - Output: 14×14×256 feature map
-
-2. **Multi-Head Self-Attention**: 8 attention heads
-   - Captures long-range spatial dependencies
-   - Enables global pattern recognition (e.g., Head-and-Shoulders)
-
-3. **Decoder**: 4 transpose convolutional layers
-   - Reconstructs original image for self-supervised learning
-
-4. **Feature Extraction**: Global average pooling → 1024-dim vector
-
-### Hybrid Similarity Search
-
-The system combines two similarity measures:
-
-1. **Visual Similarity** (30% weight): FAISS L2 distance on AttentionCAE features
-2. **Price Correlation** (70% weight): Pearson correlation coefficient on raw price series
-
-Only patterns with correlation > 0.5 are considered to ensure meaningful matches.
-
-### Time Isolation (NMS)
-
-To prevent look-ahead bias, the system enforces a 20-day isolation period:
-- Query pattern from day T can only match historical patterns from day T-20 or earlier
-- Prevents overlapping time windows that could leak future information
-
-### Multi-Factor Scoring Formula
+Prevents look-ahead bias by simulating real trading:
 
 ```
-Total Score = V_score + F_score + Q_score
-
-V_score (0-3): Based on predicted win rate
-  - ≥65%: 3 points
-  - 55-65%: 2 points
-  - 45-55%: 1 point
-  - <45%: 0 points
-
-F_score (0-4): Based on ROE and PE
-  - ROE >15%: 2 points, 8-15%: 1 point
-  - PE <20: 2 points, 20-40: 1 point
-
-Q_score (0-3): Based on technical indicators
-  - MA60 trend: 1 point (Close > MA60)
-  - RSI health: 1 point (30 ≤ RSI ≤ 70)
-  - MACD momentum: 1 point (MACD_Hist > 0)
-
-Trading Decision:
-  - Score ≥7: BUY
-  - Score 5-6: WAIT
-  - Score <5: SELL
+|------ Train (3 years) ------|-- Val (6mo) --|-- Test (6mo) --|
+                              |
+                              ↓ Roll forward
+|------ Train (3 years) ------|-- Val (6mo) --|-- Test (6mo) --|
 ```
 
 ---
@@ -287,260 +220,321 @@ Trading Decision:
 ```
 VisionQuant-Pro/
 ├── src/
-│   ├── models/              # Deep learning models
-│   │   ├── attention_cae.py  # AttentionCAE model
-│   │   ├── autoencoder.py    # QuantCAE (legacy)
-│   │   ├── vision_engine.py  # FAISS search engine
-│   │   └── predict_engine.py # Return prediction
-│   ├── strategies/           # Trading strategies
-│   │   ├── backtester.py     # VQ strategy backtesting
-│   │   ├── batch_analyzer.py # Batch analysis
-│   │   ├── portfolio_optimizer.py  # Markowitz optimization
-│   │   ├── factor_mining.py  # Multi-factor scoring
-│   │   ├── fundamental.py    # Fundamental analysis
-│   │   ├── baseline_experiments.py  # Baseline comparisons
-│   │   └── ablation_study.py # Ablation experiments
-│   ├── data/                 # Data processing
-│   │   ├── data_loader.py    # Stock data loader
-│   │   └── news_harvester.py # News collection
-│   ├── agent/                # AI agent
-│   │   └── quant_agent.py    # LLM-based advisor
-│   └── utils/                # Utilities
-│       ├── visualizer.py     # Visualization tools
-│       ├── pdf_generator.py  # Report generation
-│       └── audio_manager.py  # Voice recognition
-├── web/
-│   └── app.py                # Streamlit web application
+│   ├── models/
+│   │   ├── dual_stream_network.py  # Core: Dual-Stream Architecture
+│   │   ├── temporal_encoder.py      # TCN + Self-Attention
+│   │   ├── attention_cae.py         # Legacy: AttentionCAE
+│   │   └── vision_engine.py         # FAISS search engine
+│   ├── data/
+│   │   ├── gaf_encoder.py           # GAF image generation
+│   │   ├── triple_barrier.py        # Label generation
+│   │   └── data_loader.py           # Stock data loader
+│   ├── strategies/
+│   │   ├── backtrader_strategy.py   # Backtrader integration
+│   │   ├── portfolio_optimizer.py   # Markowitz optimization
+│   │   └── factor_mining.py         # Multi-factor scoring
+│   └── utils/
+│       ├── walk_forward.py          # Walk-Forward validation
+│       └── grad_cam.py              # Explainability
 ├── scripts/
-│   ├── train_attention_cae.py      # Model training
-│   ├── rebuild_index_attention.py  # Index rebuilding
-│   └── prepare_data.py      # Data preparation
-├── config/
-│   └── config.yaml           # Configuration file
-├── docs/                     # Documentation
-│   ├── papers/              # Technical reports
-│   ├── images/               # Screenshots
-│   ├── AttentionCAE切换指南.md  # Model switching guide
-│   ├── 常见问题FAQ.md        # FAQ
-│   └── 在线部署教程.md       # Deployment guide
-├── run.py                    # Launcher script
-├── requirements.txt          # Dependencies
-└── README.md
+│   ├── train_dual_stream.py         # Training script
+│   └── prepare_data.py              # Data preparation
+├── web/
+│   └── app.py                       # Streamlit interface
+├── docs/
+│   ├── AttentionCAE切换指南.md
+│   ├── 常见问题FAQ.md
+│   └── 在线部署教程.md
+└── requirements.txt
 ```
 
 ---
 
-## Performance
+## Quick Start
 
-### Model Performance
-- **Training Time**: ~2 hours (5 epochs, 400K images, MPS GPU)
-- **Feature Extraction**: ~250 images/second (MPS GPU)
-- **FAISS Search**: <10ms (Top-10, 400K patterns)
+### Installation
 
-### System Performance
-- **Real-time Analysis**: 3-5 seconds (data fetch + search + AI analysis)
-- **Backtest Speed**: ~1000 days/second (single stock)
-- **Memory Usage**: ~2GB (with index loaded)
+```bash
+git clone https://github.com/panyisheng095-ux/VisionQuant-Pro.git
+cd VisionQuant-Pro
 
-### Prediction Accuracy
-- **Pattern Matching**: Top-10 similarity > 0.85
-- **Win Rate Prediction**: ±5% deviation (based on historical backtest)
-- **Return Prediction**: ±2% deviation (based on historical backtest)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+
+pip install -r requirements.txt
+```
+
+### Data Preparation
+
+```bash
+# Generate GAF images and labels
+python scripts/prepare_data.py --symbols 600519 000858 601899 --window 60
+```
+
+### Training
+
+```bash
+# Train dual-stream network with Walk-Forward validation
+python scripts/train_dual_stream.py \
+    --data_dir data \
+    --gaf_dir data/gaf_images \
+    --batch_size 32 \
+    --num_epochs 50
+```
+
+### Web Interface
+
+```bash
+python run.py  # or: PYTHONPATH=. streamlit run web/app.py
+```
+
+---
+
+## Comparison with Other Approaches
+
+| Aspect | Traditional Quant | Pure CNN | RD-Agent | VisionQuant v2.0 |
+|--------|------------------|----------|----------|------------------|
+| Input | Numerical | K-line image | Numerical+Text | **GAF+OHLCV** |
+| Time Modeling | Hand-crafted | Ignored | Agent reasoning | **TCN+Attention** |
+| Image Encoding | None | Screenshot | None | **GAF (math-based)** |
+| Explainability | High | Low | Medium | **High (Grad-CAM)** |
+| Labeling | Returns | Up/Down | Returns | **Triple Barrier** |
+| Validation | Random split | Random split | Rolling | **Walk-Forward** |
+
+---
+
+## Theoretical Foundation
+
+### Behavioral Finance Justification
+
+> "The market is driven by human behavior, and humans are visual creatures."
+
+- **Anchoring Bias**: Traders anchor to visually prominent patterns (support/resistance)
+- **Herding Behavior**: Visual breakouts trigger collective action
+- **Representativeness Heuristic**: Similar charts → similar future outcomes
+
+Our model formalizes these intuitions:
+- GAF preserves the visual structure traders see
+- Cross-modal fusion captures both "what it looks like" and "how it moves"
+- Historical pattern matching exploits behavioral repetition
+
+### Information Theoretic View
+
+```
+I(FutureReturn; GAF+OHLCV) > I(FutureReturn; OHLCV)
+```
+
+The visual representation captures geometric and topological features that are difficult to extract from raw numerical sequences.
+
+---
+
+## Performance Notes
+
+### Expected Results
+- **Classification Accuracy**: 45-55% (3-class, beating random 33%)
+- **Return Prediction MAE**: 2-4%
+- **Alpha vs Buy-and-Hold**: Varies by market condition
+
+### Disclaimer
+- **This is a research project, NOT investment advice**
+- Past performance does not guarantee future results
+- Quantitative trading involves significant risk
 
 ---
 
 ## Roadmap
 
-### Next Steps (v2.0)
+### v2.1 (Next)
+- [ ] Vision Transformer (ViT) backbone option
+- [ ] Contrastive learning (SimCLR) pretraining
+- [ ] Multi-timeframe fusion (daily + weekly + monthly)
 
-#### Model Enhancements
-- [ ] **Contrastive Learning (SimCLR)**: Self-supervised learning to improve feature representation quality
-  - Expected improvement: +3-5% Alpha gain
-  - Implementation: Add contrastive loss to training objective
-
-- [ ] **Vision Transformer (ViT)**: Replace CNN encoder with Transformer architecture
-  - Expected improvement: Better long-range dependency modeling
-  - Challenge: Requires more training data and computational resources
-
-- [ ] **Multi-Timeframe Fusion**: Combine daily, weekly, and monthly charts
-  - Expected improvement: More robust signal quality
-  - Implementation: Multi-scale feature extraction and fusion
-
-#### Strategy Optimization
-- [ ] **Dynamic Threshold Adjustment**: Adaptive thresholds based on market volatility
-  - Current: Fixed thresholds (win_rate ≥65% for BUY)
-  - Enhancement: Volatility-adjusted thresholds (e.g., higher threshold in high volatility)
-
-- [ ] **Risk Control Enhancement**: Advanced risk management
-  - Dynamic stop-loss based on ATR (Average True Range)
-  - Position sizing based on Kelly Criterion
-  - Portfolio-level risk limits
-
-- [ ] **Multi-Strategy Ensemble**: Combine multiple strategies
-  - VQ Strategy + Momentum + Mean Reversion
-  - Dynamic weight allocation based on market regime
-
-#### Data Quality Improvements
-- [ ] **Multi-Source Data Integration**: Add Wind, Tushare, and other data sources
-  - Current: AkShare only
-  - Enhancement: Cross-validation and data quality checks
-
-- [ ] **Extended Stock Coverage**: Expand to full A-share market (5000+ stocks)
-  - Current: 400K images from selected stocks
-  - Enhancement: Full market coverage for better generalization
-
-- [ ] **Real-time Data Streaming**: WebSocket-based real-time data updates
-  - Current: Batch updates
-  - Enhancement: Real-time price and news streaming
-
-#### System Performance
-- [ ] **Index Optimization**: Use IVF (Inverted File) index instead of Flat
-  - Current: IndexFlatIP (exhaustive search)
-  - Enhancement: IVF index for 10-100x speedup on large datasets
-
-- [ ] **Caching System**: Intelligent caching of predictions and analysis results
-  - Reduce redundant computations
-  - Improve response time for repeated queries
-
-- [ ] **Parallel Processing**: Multi-process/multi-thread batch analysis
-  - Current: Sequential processing
-  - Enhancement: Parallel stock analysis for batch mode
-
-#### User Experience
-- [ ] **Web UI Enhancement**: Improved interactivity and visualization
-  - Interactive charts with drill-down capabilities
-  - Customizable dashboard layouts
-  - Real-time updates
-
-- [ ] **Mobile App**: Native mobile application (iOS/Android)
-  - Current: Web-only
-  - Enhancement: Native app with push notifications
-
-- [ ] **API Service**: RESTful API for programmatic access
-  - Enable integration with other trading systems
-  - Support for algorithmic trading platforms
-
-### Long-term Vision (v3.0+)
-
-- [ ] **Multi-Market Support**: Extend to Hong Kong, US, and other markets
-- [ ] **Reinforcement Learning**: RL-based strategy optimization
-- [ ] **Automated Trading**: Integration with broker APIs for live trading
-- [ ] **Community Platform**: Strategy sharing, backtest competitions, social features
-
----
-
-## Documentation
-
-- **[Technical Report](docs/papers/VisionQuant-Pro_Technical_Report.pdf)**: Comprehensive technical documentation (Chinese/English)
-- **[AttentionCAE Switching Guide](docs/AttentionCAE切换指南.md)**: How to switch from QuantCAE to AttentionCAE
-- **[FAQ](docs/常见问题FAQ.md)**: Frequently asked questions
-- **[Deployment Guide](docs/在线部署教程.md)**: Online deployment instructions
-
----
-
-## Screenshots
-
-### Main Interface - Single Stock Analysis
-![Main Interface](docs/images/screenshot1-main.png)
-
-### Batch Portfolio Analysis
-![Portfolio Analysis](docs/images/screenshot2-portfolio.png)
-
-### Strategy Backtesting
-![Backtesting](docs/images/screenshot3-backtest.png)
-
-### AI Chat Assistant
-![AI Chat](docs/images/screenshot4-ai-chat.png)
-
----
-
-## Dependencies
-
-### Core Dependencies
-- `torch` >= 2.0.0 - Deep learning framework
-- `torchvision` >= 0.15.0 - Image processing
-- `faiss-cpu` >= 1.7.4 - Vector similarity search
-- `streamlit` >= 1.28.0 - Web application framework
-- `pandas` >= 2.0.0 - Data manipulation
-- `numpy` >= 1.24.0 - Numerical computing
-
-### Data & Analysis
-- `akshare` >= 1.11.0 - Chinese stock market data
-- `scipy` >= 1.10.0 - Scientific computing (Markowitz optimization)
-- `plotly` >= 5.14.0 - Interactive visualization
-- `mplfinance` >= 0.12.0 - Candlestick chart generation
-
-### AI/LLM
-- `langchain` >= 0.1.0 - LLM application framework
-- `langchain-google-genai` >= 0.0.6 - Google Gemini integration
-- `google-generativeai` >= 0.3.0 - Google Generative AI SDK
-
-See [requirements.txt](requirements.txt) for complete dependency list.
-
----
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Code Style
-- Follow PEP 8 Python style guide
-- Add docstrings for all functions and classes
-- Include type hints where appropriate
-- Write unit tests for new features
+### v2.2 (Future)
+- [ ] Reinforcement learning integration
+- [ ] Live trading API integration
+- [ ] Multi-market support (US, HK)
 
 ---
 
 ## Citation
 
-If you use VisionQuant-Pro in your research, please cite:
-
 ```bibtex
 @software{visionquant-pro,
-  title = {VisionQuant-Pro: Vision-Based Quantitative Trading System with Deep Learning},
+  title = {VisionQuant-Pro: Dual-Stream Vision-Based Quantitative Trading},
   author = {Pan, Yisheng},
   year = {2025},
-  url = {https://github.com/panyisheng095-ux/VisionQuant-Pro},
-  version = {1.0.0}
+  url = {https://github.com/panyisheng095-ux/VisionQuant-Pro}
 }
+```
+
+---
+
+## References
+
+- Wang, Z., & Oates, T. (2015). Imaging time-series to improve classification and imputation. IJCAI.
+- López de Prado, M. (2018). Advances in Financial Machine Learning. Wiley.
+- Selvaraju, R. R., et al. (2017). Grad-CAM: Visual Explanations from Deep Networks.
+- Bai, S., et al. (2018). An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling.
+
+---
+
+## Version History
+
+### Detailed Changelog
+
+---
+
+### v2.0.0 (2026-01-13) - Major Architecture Overhaul
+
+**This is a complete rewrite focused on academic rigor and industrial applicability.**
+
+#### ⚡ Core Architecture Changes
+
+| Component | v1.0 | v2.0 | Improvement |
+|-----------|------|------|-------------|
+| **Image Encoding** | K-line screenshot (matplotlib) | **GAF (Gramian Angular Field)** | 数学严谨的时序→图像转换，保留时间依赖性 |
+| **Network** | Single-stream CAE | **Dual-Stream (Vision+Temporal)** | 同时利用视觉空间信息和时序动态信息 |
+| **Vision Encoder** | Custom 4-layer CNN | **ResNet18 (pretrained)** | ImageNet预训练，更强的特征提取能力 |
+| **Temporal Encoder** | None | **TCN + Self-Attention** | 捕捉长距离时序依赖 |
+| **Fusion Method** | None | **Cross-Modal Attention** | 可学习的模态融合权重 |
+
+#### 📊 Data & Labels
+
+| Component | v1.0 | v2.0 | Improvement |
+|-----------|------|------|-------------|
+| **Input Data** | K线截图 (PNG) | **GAF 3通道图像 + 原始OHLCV** | 无信息丢失，精确数值保留 |
+| **Label Definition** | 简单涨跌 (+5天收益率>0) | **Triple Barrier Method** | 业界标准，考虑止盈/止损/时间限制 |
+| **Label Classes** | 2类 (涨/跌) | **3类 (看涨/震荡/看跌)** | 更符合实际交易决策 |
+
+#### 🔬 Training & Validation
+
+| Component | v1.0 | v2.0 | Improvement |
+|-----------|------|------|-------------|
+| **Data Split** | 随机 90/10 | **Walk-Forward 滚动验证** | 防止未来函数泄露 |
+| **Validation** | 单次验证集 | **滚动窗口多次验证** | 更可靠的泛化能力评估 |
+| **Training Loss** | MSE重建损失 | **分类CE + 回归MSE + 对比损失** | 多任务联合优化 |
+
+#### 📈 Backtesting
+
+| Component | v1.0 | v2.0 | Improvement |
+|-----------|------|------|-------------|
+| **Framework** | 自写简单回测 | **Backtrader 专业框架** | 工业级回测能力 |
+| **Metrics** | 简单收益率 | **Sharpe/Calmar/MaxDD/胜率/盈亏比** | 完整绩效评估 |
+| **Look-ahead Bias** | 未严格防范 | **严格时间隔离** | 可信的回测结果 |
+
+#### 🎯 Explainability
+
+| Component | v1.0 | v2.0 | Improvement |
+|-----------|------|------|-------------|
+| **Model Interpretation** | Attention权重热力图 | **Grad-CAM + Attention + 模态权重** | 多层次可解释性 |
+| **Visualization** | 单一注意力图 | **GAF热力图 + 时序注意力 + 融合权重** | 完整的决策解释链 |
+
+#### 📁 New Files Added (v2.0)
+
+```
+src/data/
+├── gaf_encoder.py          # [NEW] GAF图像编码器 (491 lines)
+└── triple_barrier.py       # [NEW] Triple Barrier标签 (549 lines)
+
+src/models/
+├── temporal_encoder.py     # [NEW] TCN+Attention时序编码器 (579 lines)
+└── dual_stream_network.py  # [NEW] 双流融合网络 (711 lines)
+
+src/strategies/
+└── backtrader_strategy.py  # [NEW] Backtrader策略 (555 lines)
+
+src/utils/
+├── walk_forward.py         # [NEW] Walk-Forward验证 (638 lines)
+└── grad_cam.py             # [NEW] Grad-CAM可视化 (517 lines)
+
+scripts/
+└── train_dual_stream.py    # [NEW] 双流网络训练脚本 (523 lines)
+```
+
+**Total new code: ~4,600 lines**
+
+---
+
+### v1.5.0 (2026-01-10) - Attention Enhancement
+
+#### Changes from v1.0
+- **AttentionCAE**: 在CAE末端添加8头自注意力机制
+- **Multi-factor Scoring**: V(视觉)+F(财务)+Q(量化)三因子评分
+- **Batch Analysis**: 支持30只股票批量分析
+- **Portfolio Optimization**: Markowitz均值-方差优化
+- **AI Agent**: 集成Google Gemini大模型辅助分析
+
+#### Files Added (v1.5)
+```
+src/models/attention_cae.py        # 注意力增强CAE
+src/strategies/batch_analyzer.py   # 批量分析引擎
+src/strategies/portfolio_optimizer.py  # 组合优化器
+src/utils/attention_visualizer.py  # 注意力可视化
+```
+
+---
+
+### v1.0.0 (2026-01-05) - Initial Release
+
+#### Core Features
+- **QuantCAE**: 4层卷积自编码器，学习K线图形态
+- **FAISS Search**: 向量相似度搜索，毫秒级检索
+- **Streamlit Web**: 交互式Web界面
+- **基础回测**: 简单的买入持有对比
+
+#### Architecture (v1.0)
+```
+K线截图 (matplotlib)
+    ↓
+QuantCAE (4-layer CNN)
+    ↓
+FAISS Index (L2 distance)
+    ↓
+Top-K Similar Patterns
+    ↓
+Win Rate Prediction
+```
+
+#### Limitations Identified
+1. ❌ K线截图丢失精确数值信息
+2. ❌ 纯CNN无法捕捉长距离依赖
+3. ❌ 简单涨跌标签不符合实际交易
+4. ❌ 随机数据划分导致未来函数风险
+5. ❌ 缺乏严谨的回测框架
+
+---
+
+### Version Comparison Summary
+
+```
+v1.0 Architecture:
+──────────────────
+K线截图 → CAE Encoder → FAISS → Win Rate → Simple Score
+
+v1.5 Architecture:
+──────────────────
+K线截图 → AttentionCAE → FAISS → Win Rate → Multi-Factor Score
+                ↑                              ↑
+          + Attention                    + V+F+Q Factors
+
+v2.0 Architecture:
+──────────────────
+         ┌→ GAF Image → ResNet18 ──────┐
+OHLCV ───┤                              ├→ Cross-Modal Attention → Triple Barrier
+         └→ Sequence  → TCN+Attention ─┘
 ```
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Disclaimer
-
-**This project is for educational and research purposes only. It does not constitute investment advice.**
-
-- Past performance does not guarantee future results
-- Stock market investments carry risk of loss
-- Users are responsible for their own investment decisions
-- The authors are not liable for any financial losses
-
----
-
-## Contact
-
-- **GitHub Issues**: [Report bugs or request features](https://github.com/panyisheng095-ux/VisionQuant-Pro/issues)
-- **Discussions**: [Join the community](https://github.com/panyisheng095-ux/VisionQuant-Pro/discussions)
-- **Email**: panyisheng095@gmail.com
+MIT License - see [LICENSE](LICENSE)
 
 ---
 
 <div align="center">
 
-**If you find this project helpful, please give it a ⭐️ Star!**
+**If you find this project useful, please give it a ⭐ Star!**
 
 Made with ❤️ by [panyisheng095-ux](https://github.com/panyisheng095-ux)
 
