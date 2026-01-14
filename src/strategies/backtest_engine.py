@@ -324,7 +324,7 @@ class VisionQuantBacktester:
         step_size: int = 63
     ) -> BacktestResult:
         """
-        运行Walk-Forward回测
+        运行Walk-Forward回测（可选模式）
         
         Args:
             df: OHLCV数据
@@ -332,10 +332,21 @@ class VisionQuantBacktester:
             train_period: 训练期长度
             test_period: 测试期长度
             step_size: 滚动步长
+            use_walk_forward: 是否使用Walk-Forward（如果为None，使用self.use_walk_forward）
             
         Returns:
             BacktestResult
         """
+        # 决定是否使用Walk-Forward
+        if use_walk_forward is None:
+            use_walk_forward = self.use_walk_forward
+        
+        if not use_walk_forward:
+            # 单次回测模式
+            signals, scores, win_rates = signal_generator(df)
+            return self.run_backtest(df, signals, scores, win_rates)
+        
+        # Walk-Forward模式
         validator = WalkForwardValidator(
             train_period=train_period,
             val_period=0,  # 简化版不使用验证集
