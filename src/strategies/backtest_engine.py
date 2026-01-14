@@ -609,6 +609,81 @@ def statistical_test(strategy_returns: pd.Series, benchmark_returns: pd.Series) 
     }
 
 
+    def validate_dynamic_weights(
+        self,
+        df: pd.DataFrame,
+        signals: pd.Series,
+        scores: pd.Series,
+        win_rates: pd.Series,
+        regime_manager = None
+    ) -> Dict:
+        """
+        验证动态权重的有效性
+        
+        方法：比较固定权重和动态权重的回测结果
+        
+        Args:
+            df: OHLCV数据
+            signals: 交易信号
+            scores: 评分序列
+            win_rates: 胜率序列
+            regime_manager: Regime管理器
+            
+        Returns:
+            验证结果字典
+        """
+        if regime_manager is None:
+            from src.strategies.regime_manager import RegimeManager
+            regime_manager = RegimeManager()
+        
+        # 1. 固定权重回测（传统方式）
+        fixed_result = self.run_backtest(df, signals, scores, win_rates)
+        
+        # 2. 动态权重回测（需要重新计算评分）
+        # 这里简化处理：假设动态权重只影响评分计算
+        # 实际应该重新计算每个时间点的评分
+        
+        # 计算动态权重的时间序列
+        returns = df['Close'].pct_change().dropna()
+        dynamic_weights_history = []
+        
+        for i in range(len(df)):
+            if i < 60:  # 需要足够的历史数据
+                dynamic_weights_history.append({
+                    'kline_factor': 0.5,
+                    'fundamental': 0.3,
+                    'technical': 0.2
+                })
+                continue
+            
+            # 获取当前regime
+            current_returns = returns.iloc[:i] if i < len(returns) else returns
+            current_regime = regime_manager.get_current_regime(current_returns)
+            
+            # 获取权重
+            weights = regime_manager.get_regime_weights(current_regime)
+            dynamic_weights_history.append(weights)
+        
+        # 3. 比较结果
+        comparison = {
+            'fixed_weights': {
+                'total_return': fixed_result.total_return,
+                'sharpe_ratio': fixed_result.sharpe_ratio,
+                'max_drawdown': fixed_result.max_drawdown,
+                'win_rate': fixed_result.win_rate
+            },
+            'dynamic_weights': {
+                'weights_history': dynamic_weights_history,
+                'note': '动态权重回测需要重新计算评分，这里仅提供权重历史'
+            },
+            'improvement': {
+                'note': '需要完整动态权重回测结果才能计算改进幅度'
+            }
+        }
+        
+        return comparison
+
+
 if __name__ == "__main__":
     print("=== 回测引擎测试 ===")
     

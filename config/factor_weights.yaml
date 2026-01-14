@@ -1,0 +1,59 @@
+# 因子权重配置表
+# Factor Weights Configuration
+
+# 不同市场Regime下的因子权重配置
+regime_weights:
+  # 牛市：K线因子权重高，技术面次之，基本面最低
+  bull_market:
+    kline_factor: 0.60    # K线学习因子（主因子）
+    fundamental: 0.20      # 基本面因子
+    technical: 0.20        # 技术面因子
+    description: "牛市环境下，K线形态识别更有效，技术面信号更强"
+  
+  # 熊市：降低K线因子权重，增加基本面权重
+  bear_market:
+    kline_factor: 0.40    # 熊市降低K线因子权重
+    fundamental: 0.40     # 增加基本面权重（安全边际）
+    technical: 0.20
+    description: "熊市环境下，基本面安全边际更重要，K线形态可能失效"
+  
+  # 震荡市：平衡配置
+  oscillating:
+    kline_factor: 0.50
+    fundamental: 0.30
+    technical: 0.20
+    description: "震荡市环境下，平衡各因子权重"
+  
+  # 未知状态：保守配置
+  unknown:
+    kline_factor: 0.40
+    fundamental: 0.35
+    technical: 0.25
+    description: "市场状态未知时，采用保守配置"
+
+# IC调整系数
+# 根据因子IC动态调整权重
+ic_adjustment:
+  enabled: true
+  adjustment_factor: 0.5    # IC每增加0.01，权重增加0.5%
+  max_adjustment: 0.3        # 最大调整幅度（±30%）
+  ic_threshold: 0.02         # IC阈值（低于此值开始降权）
+
+# 因子失效处理
+invalidation_handling:
+  enabled: true
+  decay_penalty: 0.2         # 衰减惩罚系数
+  min_weight: 0.1            # 最小权重（即使失效也不完全禁用）
+  max_weight: 0.8            # 最大权重（防止过度集中）
+
+# 权重平滑
+smoothing:
+  enabled: true
+  smoothing_factor: 0.3      # 指数移动平均平滑系数
+  min_change_threshold: 0.05  # 最小变化阈值（避免频繁微调）
+
+# 默认配置
+default:
+  kline_factor: 0.50
+  fundamental: 0.30
+  technical: 0.20
