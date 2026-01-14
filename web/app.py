@@ -1244,48 +1244,48 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                             'trades': len(trade_log)
                         })
                 
-                # 显示Walk-Forward结果 - Google AI Studio风格
+                # 显示Walk-Forward结果 - 专业风格
                 if all_results:
                     results_df = pd.DataFrame(all_results)
                     
                     # 显示结果表格
-                    st.markdown("### 📊 Walk-Forward验证结果")
+                    st.markdown("### Walk-Forward验证结果")
                     st.dataframe(results_df, use_container_width=True, height=300)
                     
-                    # 绘制多fold结果 - Apple风格图表
+                    # 绘制多fold结果 - 专业图表
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
                         x=results_df['fold'],
                         y=results_df['return'],
                         mode='lines+markers',
                         name='策略收益',
-                        line=dict(color='#667eea', width=3),
-                        marker=dict(size=8, color='#667eea'),
-                        fill='tozeroy',
-                        fillcolor='rgba(102, 126, 234, 0.1)'
+                        line=dict(color='#58a6ff', width=2),
+                        marker=dict(size=6, color='#58a6ff')
                     ))
                     fig.add_trace(go.Scatter(
                         x=results_df['fold'],
                         y=results_df['benchmark'],
                         mode='lines+markers',
                         name='基准收益',
-                        line=dict(color='#9ca3af', width=2, dash='dash'),
-                        marker=dict(size=6, color='#9ca3af')
+                        line=dict(color='#8b949e', width=1, dash='dash'),
+                        marker=dict(size=4, color='#8b949e')
                     ))
                     fig.update_layout(
                         title=f"Walk-Forward验证结果（{fold_count}个fold，训练期{wf_train_months}月，测试期{wf_test_months}月）",
                         xaxis_title="Fold",
                         yaxis_title="收益率 (%)",
-                        height=450,
-                        plot_bgcolor='rgba(255, 255, 255, 0.9)',
-                        paper_bgcolor='rgba(255, 255, 255, 0)',
-                        font=dict(family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', size=12),
+                        height=400,
+                        plot_bgcolor='#0d1117',
+                        paper_bgcolor='#0d1117',
+                        font=dict(color='#c9d1d9', size=11),
                         hovermode='x unified',
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='#161b22', bordercolor='#30363d'),
+                        xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
+                        yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
                     )
                     st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
                     
-                    # 统计指标 - Apple风格
+                    # 统计指标
                     avg_return = results_df['return'].mean()
                     avg_alpha = results_df['alpha'].mean()
                     std_return = results_df['return'].std()
@@ -1304,7 +1304,7 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                     with col4:
                         st.metric("Fold数量", f"{fold_count}个")
                 else:
-                    st.warning("⚠️ Walk-Forward验证未生成结果，可能数据不足")
+                    st.warning("Walk-Forward验证未生成结果，可能数据不足")
             else:
                 # 简单回测（原有逻辑）
                 if len(df_bt) > 50:
@@ -1378,31 +1378,31 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                         
                         equity.append(cash + shares * p)
                     
-                    # 绘制收益曲线 - Google AI Studio风格
+                    # 绘制收益曲线 - 专业风格
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
                         x=df_bt.index, 
                         y=equity, 
                         name="VQ 策略", 
-                        line=dict(color='#667eea', width=3),
-                        fill='tozeroy',
-                        fillcolor='rgba(102, 126, 234, 0.1)'
+                        line=dict(color='#58a6ff', width=2)
                     ))
                     bench = (df_bt['Close'] / df_bt['Close'].iloc[0]) * bt_cap
                     fig.add_trace(go.Scatter(
                         x=df_bt.index, 
                         y=bench, 
                         name="基准（买入持有）", 
-                        line=dict(color='#9ca3af', width=2, dash='dash')
+                        line=dict(color='#8b949e', width=1, dash='dash')
                     ))
                     fig.update_layout(
-                        title="📈 策略收益曲线",
-                        height=450,
-                        plot_bgcolor='rgba(255, 255, 255, 0.9)',
-                        paper_bgcolor='rgba(255, 255, 255, 0)',
-                        font=dict(family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', size=12),
+                        title="策略收益曲线",
+                        height=400,
+                        plot_bgcolor='#0d1117',
+                        paper_bgcolor='#0d1117',
+                        font=dict(color='#c9d1d9', size=11),
                         hovermode='x unified',
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='#161b22', bordercolor='#30363d'),
+                        xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
+                        yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
                     )
                     st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
                     
@@ -1411,7 +1411,7 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                     alpha = ret - bench_ret
                     sharpe = (ret / 100) / (np.std(np.diff(equity)) / np.mean(equity)) if len(equity) > 1 and np.std(np.diff(equity)) > 0 else 0
                     
-                    # 指标展示 - Apple风格
+                    # 指标展示
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.metric("策略收益率", f"{ret:.2f}%", 
@@ -1492,33 +1492,33 @@ def _show_factor_analysis_integrated(symbol, df_f):
             ic_analyzer = ICAnalyzer(factor_values, forward_returns)
             rolling_ic = ic_analyzer.calculate_rolling_ic(window=min(20, len(factor_values)//2))
             
-            # 绘制IC曲线 - Google AI Studio风格
+            # 绘制IC曲线 - 专业风格
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=rolling_ic.index,
                 y=rolling_ic.values,
                 mode='lines',
                 name='Rolling IC',
-                line=dict(color='#667eea', width=3),
-                fill='tozeroy',
-                fillcolor='rgba(102, 126, 234, 0.1)'
+                line=dict(color='#58a6ff', width=2)
             ))
-            fig.add_hline(y=0.05, line_dash="dash", line_color="#10b981", 
+            fig.add_hline(y=0.05, line_dash="dash", line_color="#3fb950", 
                          annotation_text="IC阈值(0.05)", annotation_position="right")
-            fig.add_hline(y=-0.05, line_dash="dash", line_color="#ef4444", 
+            fig.add_hline(y=-0.05, line_dash="dash", line_color="#f85149", 
                          annotation_text="IC阈值(-0.05)", annotation_position="right")
-            fig.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+            fig.add_hline(y=0, line_dash="dot", line_color="#8b949e", opacity=0.5)
             fig.update_layout(
-                title="📊 IC曲线分析 - K线学习因子有效性",
+                title="IC曲线分析 - K线学习因子有效性",
                 height=400,
-                plot_bgcolor='rgba(255, 255, 255, 0.9)',
-                paper_bgcolor='rgba(255, 255, 255, 0)',
-                font=dict(family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', size=12),
-                hovermode='x unified'
+                plot_bgcolor='#0d1117',
+                paper_bgcolor='#0d1117',
+                font=dict(color='#c9d1d9', size=11),
+                hovermode='x unified',
+                xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
+                yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
             )
             st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
             
-            # 显示IC统计 - Apple风格卡片
+            # 显示IC统计
             ic_stats = ic_analyzer.get_ic_statistics(rolling_ic)
             col1, col2, col3, col4 = st.columns(4)
             with col1:
@@ -1533,31 +1533,33 @@ def _show_factor_analysis_integrated(symbol, df_f):
                 st.metric("正IC比例", f"{ic_stats['positive_ic_ratio']*100:.1f}%",
                          delta="良好" if ic_stats['positive_ic_ratio'] > 0.6 else "一般")
             
-            # Regime识别图 - Google AI Studio风格
-            st.subheader("🌍 市场Regime识别")
+            # Regime识别图 - 专业风格
+            st.subheader("市场Regime识别")
             regime_detector = RegimeDetector(df_f['Close'])
             regimes = regime_detector.detect_regime()
             regime_counts = regimes.value_counts()
             
-            colors_map = {'Bull': '#10b981', 'Bear': '#ef4444', 'Oscillating': '#f59e0b'}
+            colors_map = {'Bull': '#3fb950', 'Bear': '#f85149', 'Oscillating': '#d29922'}
             fig_regime = go.Figure(data=[go.Bar(
                 x=regime_counts.index,
                 y=regime_counts.values,
-                marker_color=[colors_map.get(r, '#6b7280') for r in regime_counts.index],
+                marker_color=[colors_map.get(r, '#8b949e') for r in regime_counts.index],
                 text=regime_counts.values,
                 textposition='outside'
             )])
             fig_regime.update_layout(
                 title="市场Regime分布",
                 height=350,
-                plot_bgcolor='rgba(255, 255, 255, 0.9)',
-                paper_bgcolor='rgba(255, 255, 255, 0)',
-                font=dict(family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', size=12)
+                plot_bgcolor='#0d1117',
+                paper_bgcolor='#0d1117',
+                font=dict(color='#c9d1d9', size=11),
+                xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
+                yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
             )
             st.plotly_chart(fig_regime, config={"displayModeBar": False}, use_container_width=True)
             
             # 因子衰减分析
-            st.subheader("📉 因子衰减分析")
+            st.subheader("因子衰减分析")
             decay_window = min(60, len(rolling_ic))
             recent_ic = rolling_ic.tail(decay_window).mean()
             earlier_ic = rolling_ic.head(decay_window).mean() if len(rolling_ic) > decay_window else recent_ic
@@ -1572,12 +1574,12 @@ def _show_factor_analysis_integrated(symbol, df_f):
                          delta_color="inverse" if decay_rate < 0 else "normal")
             
         else:
-            st.warning("⚠️ 数据不足，无法进行因子分析。需要至少20个有效数据点。")
+            st.warning("数据不足，无法进行因子分析。需要至少20个有效数据点。")
     except ImportError as e:
-        st.error(f"❌ 模块导入失败: {e}")
-        st.info("💡 提示：请确保因子分析模块已正确安装")
+        st.error(f"模块导入失败: {e}")
+        st.info("提示：请确保因子分析模块已正确安装")
     except Exception as e:
-        st.error(f"❌ 因子分析失败: {e}")
+        st.error(f"因子分析失败: {e}")
         import traceback
         with st.expander("查看详细错误信息"):
             st.code(traceback.format_exc())
