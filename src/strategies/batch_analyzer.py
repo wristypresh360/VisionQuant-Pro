@@ -20,6 +20,13 @@ class BatchAnalyzer:
         self.engines = engines
         self.max_workers = 8  # 控制并发，避免API限流
         self.prediction_cache = self._load_prediction_cache()
+        
+        # K线因子计算器（混合胜率）
+        self.kline_factor_calc = KLineFactorCalculator(
+            triple_barrier_weight=0.7,
+            traditional_weight=0.3,
+            data_loader=engines.get("loader")
+        )
     
     def _load_prediction_cache(self):
         """加载预测缓存"""
@@ -93,10 +100,13 @@ class BatchAnalyzer:
             mpf.plot(df.tail(20), type='candle', style=s, 
                     savefig=dict(fname=q_p, dpi=50), figsize=(3, 3), axisoff=True)
             
-            matches = self.engines["vision"].search_similar_patterns(q_p, top_k=3)
+            matches = self.engines["vision"].search_similar_patterns(q_p, top_k=10)
             
-            # 4. 快速胜率计算（使用缓存或简化计算）
-            win_rate = self._get_win_rate_fast(symbol, matches, df)
+            # 4. 混合胜率计算（Triple Barrier + 传统胜率）
+            win_rate_result = self.kline_factor_calc.calculate_hybrid_win_rate(
+                matches, query_symbol=symbol, query_date=datetime.now().strftime("%Y%m%d")
+            )
+            win_rate = win_rate_result['hybrid_win_rate']
             
             # 5. 技术指标
             df_f = self.engines["factor"]._add_technical_indicators(df)

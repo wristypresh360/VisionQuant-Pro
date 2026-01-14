@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from src.utils.walk_forward import WalkForwardValidator, WalkForwardSplit
 from src.data.triple_barrier import TripleBarrierLabeler, calculate_win_loss_ratio
 from src.strategies.kelly_position import KellyPositionCalculator, PositionManager
+from src.strategies.transaction_cost import AdvancedTransactionCost
 
 
 @dataclass
@@ -58,22 +59,28 @@ class VisionQuantBacktester:
     def __init__(
         self,
         initial_capital: float = 1000000,
-        commission: float = 0.001,      # 手续费0.1%
-        slippage: float = 0.001,        # 滑点0.1%
+        commission: float = 0.001,      # 手续费0.1%（已废弃，使用AdvancedTransactionCost）
+        slippage: float = 0.001,        # 滑点0.1%（已废弃，使用AdvancedTransactionCost）
         stop_loss: float = 0.08,        # 止损8%
         take_profit: float = 0.15,      # 止盈15%
         max_position: float = 0.25,     # 最大仓位25%
         use_kelly: bool = True,
-        use_walk_forward: bool = True
+        use_walk_forward: bool = True,
+        use_advanced_cost: bool = True,  # 是否使用高级Transaction Cost模型
+        max_daily_turnover: float = 0.20,  # 单日最大turnover 20%
+        max_weekly_turnover: float = 0.50  # 单周最大turnover 50%
     ):
         self.initial_capital = initial_capital
-        self.commission = commission
-        self.slippage = slippage
+        self.commission = commission  # 保留用于向后兼容
+        self.slippage = slippage  # 保留用于向后兼容
         self.stop_loss = stop_loss
         self.take_profit = take_profit
         self.max_position = max_position
         self.use_kelly = use_kelly
         self.use_walk_forward = use_walk_forward
+        self.use_advanced_cost = use_advanced_cost
+        self.max_daily_turnover = max_daily_turnover
+        self.max_weekly_turnover = max_weekly_turnover
         
         # 组件初始化
         self.position_manager = PositionManager() if use_kelly else None
@@ -81,6 +88,11 @@ class VisionQuantBacktester:
             upper_barrier=take_profit,
             lower_barrier=stop_loss
         )
+        self.cost_calculator = AdvancedTransactionCost() if use_advanced_cost else None
+        
+        # Turnover跟踪
+        self.daily_turnover = {}  # {date: turnover}
+        self.weekly_turnover = {}  # {week: turnover}
         
     def run_backtest(
         self,
@@ -123,32 +135,52 @@ class VisionQuantBacktester:
                 
                 # 触发止损
                 if returns <= -self.stop_loss:
-                    sell_value = position * price * (1 - self.commission - self.slippage)
+                    sell_amount = position * price
+                    sell_value, cost = self._execute_trade(
+                        shares=position,
+                        price=price,
+                        volume=df.iloc[i].get('Volume', position * 10) if 'Volume' in df.columns else position * 10,
+                        volatility=None,
+                        is_buy=False
+                    )
                     capital += sell_value
                     trade_log.append({
                         'date': date,
                         'action': 'STOP_LOSS',
                         'price': price,
                         'shares': position,
-                        'return': returns
+                        'return': returns,
+                        'cost': cost
                     })
                     position = 0
                     
                 # 触发止盈
                 elif returns >= self.take_profit:
-                    sell_value = position * price * (1 - self.commission - self.slippage)
+                    sell_amount = position * price
+                    sell_value, cost = self._execute_trade(
+                        shares=position,
+                        price=price,
+                        volume=df.iloc[i].get('Volume', position * 10) if 'Volume' in df.columns else position * 10,
+                        volatility=None,
+                        is_buy=False
+                    )
                     capital += sell_value
                     trade_log.append({
                         'date': date,
                         'action': 'TAKE_PROFIT',
                         'price': price,
                         'shares': position,
-                        'return': returns
+                        'return': returns,
+                        'cost': cost
                     })
                     position = 0
             
             # 处理交易信号
             if signal == 1 and position == 0:  # 买入信号
+                # 检查Turnover约束
+                if not self._check_turnover_constraint(date, capital, 'BUY'):
+                    continue  # 超过Turnover限制，跳过交易
+                
                 # 计算仓位
                 if self.use_kelly and scores is not None and win_rates is not None:
                     score = scores.iloc[i] if i < len(scores) else 5
@@ -163,34 +195,74 @@ class VisionQuantBacktester:
                 else:
                     position_pct = self.max_position
                 
-                # 执行买入
+                # 执行买入（考虑Transaction Cost）
                 buy_amount = capital * position_pct
-                shares = buy_amount / (price * (1 + self.commission + self.slippage))
+                # 先计算成本，再确定实际可买股数
+                if self.use_advanced_cost and self.cost_calculator:
+                    cost_detail = self.cost_calculator.calculate_cost(
+                        trade_size=buy_amount,
+                        price=price,
+                        volume=df.iloc[i].get('Volume', buy_amount / price * 10) if 'Volume' in df.columns else buy_amount / price * 10,
+                        volatility=None,
+                        is_buy=True
+                    )
+                    # 考虑成本后，实际可买金额减少
+                    net_buy_amount = buy_amount - cost_detail['total_cost']
+                    shares = int(net_buy_amount / price)
+                    cost = cost_detail['total_cost']
+                else:
+                    # 简单模型
+                    shares = int(buy_amount / (price * (1 + self.commission + self.slippage)))
+                    cost = buy_amount - shares * price
+                
+                # 再次检查Turnover（基于实际交易金额）
+                actual_trade_amount = shares * price
+                if not self._check_turnover_with_amount(date, capital, actual_trade_amount):
+                    continue
                 
                 if shares > 0:
-                    capital -= buy_amount
+                    capital -= (buy_amount + cost)
                     position = shares
                     entry_price = price
+                    
+                    # 更新Turnover
+                    self._update_turnover(date, buy_amount, capital)
                     
                     trade_log.append({
                         'date': date,
                         'action': 'BUY',
                         'price': price,
                         'shares': shares,
-                        'position_pct': position_pct
+                        'position_pct': position_pct,
+                        'cost': cost
                     })
                     
             elif signal == -1 and position > 0:  # 卖出信号
+                # 检查Turnover约束
+                if not self._check_turnover_constraint(date, capital, 'SELL'):
+                    continue
+                
                 returns = (price - entry_price) / entry_price
-                sell_value = position * price * (1 - self.commission - self.slippage)
+                sell_amount = position * price
+                sell_value, cost = self._execute_trade(
+                    shares=position,
+                    price=price,
+                    volume=df.iloc[i].get('Volume', position * 10) if 'Volume' in df.columns else position * 10,
+                    volatility=None,
+                    is_buy=False
+                )
                 capital += sell_value
+                
+                # 更新Turnover
+                self._update_turnover(date, sell_amount, capital)
                 
                 trade_log.append({
                     'date': date,
                     'action': 'SELL',
                     'price': price,
                     'shares': position,
-                    'return': returns
+                    'return': returns,
+                    'cost': cost
                 })
                 position = 0
             
@@ -347,6 +419,156 @@ class VisionQuantBacktester:
             trade_log=all_trades,
             fold_results=fold_results
         )
+
+
+    def _execute_trade(
+        self,
+        trade_size: float = None,
+        shares: float = None,
+        price: float = None,
+        volume: float = None,
+        volatility: float = None,
+        is_buy: bool = True
+    ) -> Tuple[float, float]:
+        """
+        执行交易，计算实际成交金额和成本
+        
+        Returns:
+            (实际成交金额, 总成本)
+        """
+        if shares is None and trade_size is not None:
+            shares = trade_size / price
+        
+        if shares is None or price is None:
+            return 0.0, 0.0
+        
+        trade_amount = shares * price
+        
+        if self.use_advanced_cost and self.cost_calculator:
+            # 使用高级Transaction Cost模型
+            cost_detail = self.cost_calculator.calculate_cost(
+                trade_size=trade_amount,
+                price=price,
+                volume=volume or (shares * 10),
+                volatility=volatility,
+                is_buy=is_buy
+            )
+            total_cost = cost_detail['total_cost']
+        else:
+            # 使用简单模型（向后兼容）
+            total_cost = trade_amount * (self.commission + self.slippage)
+        
+        if is_buy:
+            # 买入：实际支付 = 交易金额 + 成本
+            actual_amount = trade_amount + total_cost
+            return shares, total_cost
+        else:
+            # 卖出：实际收到 = 交易金额 - 成本
+            actual_amount = trade_amount - total_cost
+            return actual_amount, total_cost
+    
+    def _check_turnover_constraint(
+        self,
+        date: pd.Timestamp,
+        capital: float,
+        action: str
+    ) -> bool:
+        """
+        检查Turnover约束
+        
+        Args:
+            date: 交易日期
+            capital: 当前资金
+            action: 交易动作 ('BUY' or 'SELL')
+            
+        Returns:
+            True if 允许交易, False if 超过限制
+        """
+        date_str = date.strftime('%Y-%m-%d')
+        
+        # 计算当日已用Turnover
+        daily_turnover = self.daily_turnover.get(date_str, 0.0)
+        
+        # 计算本次交易将产生的Turnover
+        # Turnover = 交易金额 / 总资产
+        # 这里需要知道交易金额，但在这个阶段还不知道，所以先检查当日累计
+        # 实际限制在_execute_trade中检查
+        
+        # 检查单日Turnover限制
+        if daily_turnover >= self.max_daily_turnover:
+            return False
+        
+        # 检查单周Turnover限制
+        week_key = date.strftime('%Y-W%U')
+        weekly_turnover = self.weekly_turnover.get(week_key, 0.0)
+        if weekly_turnover >= self.max_weekly_turnover:
+            return False
+        
+        return True
+    
+    def _check_turnover_with_amount(
+        self,
+        date: pd.Timestamp,
+        capital: float,
+        trade_amount: float
+    ) -> bool:
+        """
+        基于实际交易金额检查Turnover约束
+        
+        Args:
+            date: 交易日期
+            capital: 当前资金
+            trade_amount: 交易金额
+            
+        Returns:
+            True if 允许交易
+        """
+        if capital <= 0:
+            return False
+        
+        turnover = trade_amount / capital
+        
+        date_str = date.strftime('%Y-%m-%d')
+        daily_turnover = self.daily_turnover.get(date_str, 0.0)
+        
+        # 检查单日限制
+        if daily_turnover + turnover > self.max_daily_turnover:
+            return False
+        
+        # 检查单周限制
+        week_key = date.strftime('%Y-W%U')
+        weekly_turnover = self.weekly_turnover.get(week_key, 0.0)
+        if weekly_turnover + turnover > self.max_weekly_turnover:
+            return False
+        
+        return True
+    
+    def _update_turnover(
+        self,
+        date: pd.Timestamp,
+        trade_amount: float,
+        total_capital: float
+    ):
+        """
+        更新Turnover记录
+        
+        Args:
+            date: 交易日期
+            trade_amount: 交易金额
+            total_capital: 总资产
+        """
+        if total_capital <= 0:
+            return
+        
+        turnover = trade_amount / total_capital
+        
+        # 更新单日Turnover
+        date_str = date.strftime('%Y-%m-%d')
+        self.daily_turnover[date_str] = self.daily_turnover.get(date_str, 0.0) + turnover
+        
+        # 更新单周Turnover
+        week_key = date.strftime('%Y-W%U')
+        self.weekly_turnover[week_key] = self.weekly_turnover.get(week_key, 0.0) + turnover
 
 
 def statistical_test(strategy_returns: pd.Series, benchmark_returns: pd.Series) -> Dict:

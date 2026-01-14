@@ -1,3 +1,13 @@
+"""
+⚠️ DEPRECATED: 此文件已废弃，不再维护
+此文件保留仅用于向后兼容，新代码不应使用此模块
+建议使用 VisionEngine 和 TripleBarrierLabeler 替代
+
+DEPRECATED: This file is deprecated and no longer maintained
+This file is kept only for backward compatibility, new code should not use this module
+Use VisionEngine and TripleBarrierLabeler instead
+"""
+
 import os
 import sys
 import torch
