@@ -113,8 +113,34 @@ with st.sidebar:
     symbol_input = st.text_input("请输入 A 股代码", value="601899", help="输入6位代码")
     symbol = symbol_input.strip().zfill(6)
 
-    mode = st.radio("功能模块:", ("🔍 实盘深度研判", "📊 批量组合分析", "🧪 策略模拟回测", "📈 因子有效性分析"))
+    mode = st.radio("功能模块:", ("🔍 单只股票分析", "📊 批量组合分析"))
 
+    if mode == "🔍 单只股票分析":
+        st.divider()
+        st.subheader("分析选项")
+        show_backtest = st.checkbox("🧪 显示策略回测", value=False, help="在分析结果中显示回测功能")
+        show_factor_analysis = st.checkbox("📈 显示因子有效性分析", value=False, help="在分析结果中显示因子分析功能")
+        
+        if show_backtest:
+            st.markdown("**回测参数**")
+            bt_start = st.date_input("开始日期", datetime(2022, 1, 1), key="bt_start")
+            bt_end = st.date_input("结束日期", datetime.now(), key="bt_end")
+            bt_cap = st.number_input("初始本金", 100000, key="bt_cap")
+            bt_ma = st.slider("趋势线周期 (MA)", 20, 120, 60, key="bt_ma")
+            bt_stop = st.slider("止损阈值 (%)", 3, 15, 8, key="bt_stop")
+            bt_vision = st.slider("AI 介入阈值 (Win%)", 50, 70, 57, key="bt_vision")
+            
+            # Walk-Forward验证选项
+            bt_validation = st.radio(
+                "验证方式",
+                ("简单回测", "Walk-Forward验证（严格）"),
+                help="Walk-Forward验证模拟真实交易，使用滚动窗口防止未来函数泄漏",
+                key="bt_validation"
+            )
+            if bt_validation == "Walk-Forward验证（严格）":
+                wf_train_months = st.slider("训练期（月）", 6, 36, 24, help="每次训练使用的历史数据长度", key="wf_train_months")
+                wf_test_months = st.slider("测试期（月）", 3, 12, 6, help="每次测试的时间长度", key="wf_test_months")
+    
     if mode == "📊 批量组合分析":
         st.divider()
         st.subheader("批量分析参数")
@@ -127,28 +153,6 @@ with st.sidebar:
         max_positions = st.slider("最大持仓数量", 5, 15, 10)
         min_weight = st.slider("最小仓位 (%)", 3, 10, 5) / 100
         max_weight = st.slider("最大仓位 (%)", 15, 30, 20) / 100
-
-    if mode == "🧪 策略模拟回测":
-        st.divider()
-        st.subheader("3. 回测参数")
-        bt_start = st.date_input("开始日期", datetime(2022, 1, 1))
-        bt_end = st.date_input("结束日期", datetime.now())
-        bt_cap = st.number_input("初始本金", 100000)
-        bt_ma = st.slider("趋势线周期 (MA)", 20, 120, 60)
-        bt_stop = st.slider("止损阈值 (%)", 3, 15, 8)
-        bt_vision = st.slider("AI 介入阈值 (Win%)", 50, 70, 57)
-        
-        # Walk-Forward验证选项
-        st.divider()
-        st.markdown("**🔬 验证方法**")
-        bt_validation = st.radio(
-            "选择回测验证方式",
-            ("简单回测", "Walk-Forward验证（严格）"),
-            help="Walk-Forward验证模拟真实交易，使用滚动窗口防止未来函数泄漏"
-        )
-        if bt_validation == "Walk-Forward验证（严格）":
-            wf_train_months = st.slider("训练期（月）", 6, 36, 24, help="每次训练使用的历史数据长度")
-            wf_test_months = st.slider("测试期（月）", 3, 12, 6, help="每次测试的时间长度")
 
     st.divider()
     # ================== 强制重载（解决缓存导致的 N/A / 旧逻辑不生效） ==================
@@ -220,8 +224,8 @@ if not run_btn and not st.session_state.has_run:
     st.info(f"当前选中标的: **{symbol}**\n请在左侧侧边栏点击红色按钮启动。")
     st.stop()
 
-# --- 模式 A: 实盘深度研判 ---
-if mode == "🔍 实盘深度研判":
+# --- 模式 A: 单只股票分析（整合因子分析和回测） ---
+if mode == "🔍 单只股票分析":
     # 检测股票切换：如果symbol变化，清空旧结果和状态
     if st.session_state.current_symbol != symbol and st.session_state.current_symbol is not None:
         if "res" in st.session_state:
@@ -541,173 +545,37 @@ if mode == "🔍 实盘深度研判":
                     resp = eng["agent"].chat(user_q, st.session_state.last_context)
                     st.markdown(resp)
                     st.session_state.chat_history.append({"role": "assistant", "content": resp})
-
-# --- 模式 B: 回测 ---
-elif mode == "🧪 策略模拟回测":
-    st.subheader(f"🧪 策略模拟回测: {symbol}")
-    # 检测股票切换
-    if st.session_state.current_symbol != symbol and st.session_state.current_symbol is not None:
-        st.session_state.has_run = False
-    
-    if run_btn:
-        st.session_state.has_run = True
-        st.session_state.current_symbol = symbol
         
-        # 检查是否使用Walk-Forward验证
-        use_walk_forward = bt_validation == "Walk-Forward验证（严格）"
+        # === 整合功能：回测和因子分析 ===
+        # 检查是否显示回测
+        if show_backtest and "res" in st.session_state:
+            st.divider()
+            st.subheader("🧪 策略模拟回测")
+            
+            # 回测参数（从侧边栏重新获取，确保使用最新值）
+            # 注意：由于Streamlit的渲染机制，需要在按钮点击时重新读取侧边栏的值
+            bt_start_val = st.session_state.get("bt_start", datetime(2022, 1, 1))
+            bt_end_val = st.session_state.get("bt_end", datetime.now())
+            bt_cap_val = st.session_state.get("bt_cap", 100000)
+            bt_ma_val = st.session_state.get("bt_ma", 60)
+            bt_stop_val = st.session_state.get("bt_stop", 8)
+            bt_vision_val = st.session_state.get("bt_vision", 57)
+            bt_validation_val = st.session_state.get("bt_validation", "简单回测")
+            wf_train_months_val = st.session_state.get("wf_train_months", 24)
+            wf_test_months_val = st.session_state.get("wf_test_months", 6)
+            
+            if st.button("开始回测", key="backtest_btn"):
+                _run_backtest_integrated(symbol, bt_start_val, bt_end_val, bt_cap_val, bt_ma_val, 
+                                        bt_stop_val, bt_vision_val, bt_validation_val, 
+                                        wf_train_months_val, wf_test_months_val)
         
-        with st.spinner("回测中..." if not use_walk_forward else "Walk-Forward验证中（可能需要较长时间）..."):
-            df_bt = eng["loader"].get_stock_data(symbol, start_date=bt_start.strftime("%Y%m%d"))
-            if not df_bt.empty:
-                df_bt.index = pd.to_datetime(df_bt.index)
-                mask = (df_bt.index >= pd.to_datetime(bt_start)) & (df_bt.index <= pd.to_datetime(bt_end))
-                df_bt = df_bt.loc[mask].copy()
-                if len(df_bt) > 50:
-                    # 计算技术指标
-                    df_bt['MA20'] = df_bt['Close'].rolling(window=20).mean()
-                    df_bt['MA60'] = df_bt['Close'].rolling(window=bt_ma).mean()
-                    # 计算MACD
-                    exp12 = df_bt['Close'].ewm(span=12, adjust=False).mean()
-                    exp26 = df_bt['Close'].ewm(span=26, adjust=False).mean()
-                    df_bt['MACD'] = (exp12 - exp26) * 2
-                    df_bt = df_bt.dropna()
-                    
-                    # 加载AI胜率数据
-                    pred_path = os.path.join(PROJECT_ROOT, "data", "indices", "prediction_cache.csv")
-                    vision_map = {}
-                    has_vision_data = False
-                    if os.path.exists(pred_path):
-                        try:
-                            pdf = pd.read_csv(pred_path)
-                            pdf['date'] = pdf['date'].astype(str).str.replace('-', '')
-                            pdf['symbol'] = pdf['symbol'].astype(str).str.zfill(6)
-                            vision_map = pdf.set_index(['symbol', 'date'])['pred_win_rate'].to_dict()
-                            has_vision_data = len(vision_map) > 0
-                        except:
-                            pass
-                    
-                    # 初始化
-                    cash, shares, equity = bt_cap, 0, []
-                    trade_log = []
-                    entry_price = 0.0
-                    
-                    # 逐日交易
-                    for _, row in df_bt.iterrows():
-                        p = row['Close']
-                        ma20 = row.get('MA20', p)
-                        ma60 = row.get('MA60', p)
-                        macd = row.get('MACD', 0)
-                        date_str = row.name.strftime("%Y%m%d")
-                        
-                        # 获取AI胜率
-                        ai_win = vision_map.get((symbol, date_str), 50.0)
-                        
-                        # === VQ策略核心逻辑 ===
-                        target_pos = 0.0
-                        
-                        # 牛市模式（价格 > MA60）
-                        if p > ma60:
-                            # 强趋势锁仓
-                            if macd > 0 or p > ma20:
-                                target_pos = 1.0  # 100%仓位
-                            # 回调判断
-                            elif ai_win >= bt_vision:
-                                target_pos = 0.81  # 81%仓位
-                            else:
-                                target_pos = 0.0  # 破位离场
-                        
-                        # 熊市模式（价格 < MA60）
-                        else:
-                            # 视觉狙击
-                            if ai_win >= bt_vision + 2:
-                                target_pos = 0.50  # 50%仓位
-                            else:
-                                target_pos = 0.03  # 3%避险
-                        
-                        # === 执行交易 ===
-                        total_assets = cash + shares * p
-                        target_val = total_assets * target_pos
-                        target_shares = int(target_val / p) if p > 0 else 0
-                        diff = target_shares - shares
-                        
-                        # 过滤微小调仓（10%）
-                        if abs(diff * p) > total_assets * 0.1:
-                            if diff > 0:  # 买入
-                                cost = diff * p * 1.0003
-                                if cash >= cost:
-                                    cash -= cost
-                                    shares += diff
-                                    if entry_price == 0:
-                                        entry_price = p
-                                    trade_log.append({'date': date_str, 'action': 'BUY', 'price': p})
-                            
-                            elif diff < 0:  # 卖出
-                                # 止损检查
-                                pnl = (p - entry_price) / entry_price if entry_price > 0 and shares > 0 else 0
-                                if pnl < -bt_stop / 100:
-                                    diff = -shares  # 止损强制清仓
-                                
-                                revenue = abs(diff) * p * 0.9997
-                                cash += revenue
-                                shares += diff
-                                if shares == 0:
-                                    entry_price = 0
-                                trade_log.append({'date': date_str, 'action': 'SELL', 'price': p})
-                        
-                        equity.append(cash + shares * p)
-                    
-                    # 绘制结果
-                    fig = go.Figure()
-                    fig.add_trace(
-                        go.Scatter(x=df_bt.index, y=equity, name="VQ 策略", 
-                                 line=dict(color='#ff4b4b', width=2)))
-                    bench = (df_bt['Close'] / df_bt['Close'].iloc[0]) * bt_cap
-                    fig.add_trace(go.Scatter(x=df_bt.index, y=bench, name="基准（买入持有）", 
-                                           line=dict(color='gray', dash='dash')))
-                    fig.update_layout(title="策略收益曲线", height=400)
-                    st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
-                    
-                    # 计算指标
-                    ret = (equity[-1] - bt_cap) / bt_cap * 100
-                    bench_ret = (df_bt['Close'].iloc[-1] - df_bt['Close'].iloc[0]) / df_bt['Close'].iloc[0] * 100
-                    alpha = ret - bench_ret
-                    
-                    # 显示结果
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("策略收益率", f"{ret:.2f}%")
-                    col2.metric("Alpha", f"{alpha:.2f}%", delta=f"{alpha:.2f}%")
-                    col3.metric("交易次数", len(trade_log))
-                    col4.metric("数据来源", "有AI数据" if has_vision_data else "无AI数据")
-                    
-                    # Walk-Forward验证额外信息
-                    if use_walk_forward:
-                        st.divider()
-                        st.markdown("### 🔬 Walk-Forward验证说明")
-                        st.info(f"""
-                        **验证方法**: Walk-Forward滚动窗口验证
-                        - 训练期: {wf_train_months}个月
-                        - 测试期: {wf_test_months}个月
-                        - 防止未来函数泄漏: ✅ 严格时间隔离
-                        
-                        **注意**: 当前回测结果使用整体数据训练。完整的Walk-Forward验证需要多轮滚动训练，
-                        建议使用 `src/utils/walk_forward.py` 进行离线批量实验。
-                        """)
-                    
-                    # 显示交易记录示例
-                    with st.expander("📋 查看交易记录（前10笔）"):
-                        if trade_log:
-                            trade_df = pd.DataFrame(trade_log[:10])
-                            st.dataframe(trade_df, use_container_width=True)
-                        else:
-                            st.info("本次回测期间无交易发生（可能因为：1.无AI数据 2.阈值设置过高 3.股票始终不满足交易条件）")
-                else:
-                    st.error("数据不足")
-            else:
-                st.error("数据失败")
-    else:
-        st.info("👈 请在左侧点击启动")
+        # 检查是否显示因子分析
+        if show_factor_analysis and "res" in st.session_state:
+            st.divider()
+            st.subheader("📈 因子有效性分析")
+            _show_factor_analysis_integrated(symbol, d["df_f"])
 
-# --- 模式 C: 批量组合分析 ---
+# --- 模式 B: 批量组合分析 ---
 elif mode == "📊 批量组合分析":
     if run_btn:
         # 解析股票代码
@@ -1025,3 +893,334 @@ elif mode == "📊 批量组合分析":
     
     else:
         st.info("👈 请在左侧输入股票代码并点击启动")
+
+# === 辅助函数：整合的回测和因子分析 ===
+
+def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision, 
+                             bt_validation, wf_train_months, wf_test_months):
+    """整合的回测函数"""
+    use_walk_forward = bt_validation == "Walk-Forward验证（严格）"
+    
+    with st.spinner("回测中..." if not use_walk_forward else f"Walk-Forward验证中（训练期{wf_train_months}月，测试期{wf_test_months}月）..."):
+        df_bt = eng["loader"].get_stock_data(symbol, start_date=bt_start.strftime("%Y%m%d"))
+        if not df_bt.empty:
+            df_bt.index = pd.to_datetime(df_bt.index)
+            mask = (df_bt.index >= pd.to_datetime(bt_start)) & (df_bt.index <= pd.to_datetime(bt_end))
+            df_bt = df_bt.loc[mask].copy()
+            
+            if use_walk_forward:
+                # 真正实现Walk-Forward验证
+                from src.utils.walk_forward import WalkForwardValidator
+                
+                # 转换月份为交易日（约21个交易日/月）
+                train_days = wf_train_months * 21
+                test_days = wf_test_months * 21
+                step_days = wf_test_months * 21  # 每次滚动一个测试期
+                
+                validator = WalkForwardValidator(
+                    train_period=train_days,
+                    test_period=test_days,
+                    step_size=step_days
+                )
+                
+                all_results = []
+                fold_count = 0
+                
+                for split in validator.split(df_bt):
+                    fold_count += 1
+                    train_data = df_bt.iloc[split.train_indices]
+                    test_data = df_bt.iloc[split.test_indices]
+                    
+                    # 在训练集上计算技术指标（模拟训练过程）
+                    train_data = train_data.copy()
+                    train_data['MA20'] = train_data['Close'].rolling(window=20).mean()
+                    train_data['MA60'] = train_data['Close'].rolling(window=bt_ma).mean()
+                    exp12 = train_data['Close'].ewm(span=12, adjust=False).mean()
+                    exp26 = train_data['Close'].ewm(span=26, adjust=False).mean()
+                    train_data['MACD'] = (exp12 - exp26) * 2
+                    
+                    # 在测试集上应用策略
+                    test_data = test_data.copy()
+                    test_data['MA20'] = test_data['Close'].rolling(window=20).mean()
+                    test_data['MA60'] = test_data['Close'].rolling(window=bt_ma).mean()
+                    exp12 = test_data['Close'].ewm(span=12, adjust=False).mean()
+                    exp26 = test_data['Close'].ewm(span=26, adjust=False).mean()
+                    test_data['MACD'] = (exp12 - exp26) * 2
+                    test_data = test_data.dropna()
+                    
+                    # 加载AI胜率数据（使用混合胜率，如果可用）
+                    pred_path = os.path.join(PROJECT_ROOT, "data", "indices", "prediction_cache.csv")
+                    vision_map = {}
+                    if os.path.exists(pred_path):
+                        try:
+                            pdf = pd.read_csv(pred_path)
+                            pdf['date'] = pdf['date'].astype(str).str.replace('-', '')
+                            pdf['symbol'] = pdf['symbol'].astype(str).str.zfill(6)
+                            vision_map = pdf.set_index(['symbol', 'date'])['pred_win_rate'].to_dict()
+                        except:
+                            pass
+                    
+                    # 回测逻辑（与之前相同，但只在测试集上运行）
+                    cash, shares, equity = bt_cap, 0, []
+                    trade_log = []
+                    entry_price = 0.0
+                    
+                    for _, row in test_data.iterrows():
+                        p = row['Close']
+                        ma20 = row.get('MA20', p)
+                        ma60 = row.get('MA60', p)
+                        macd = row.get('MACD', 0)
+                        date_str = row.name.strftime("%Y%m%d")
+                        ai_win = vision_map.get((symbol, date_str), 50.0)
+                        
+                        target_pos = 0.0
+                        if p > ma60:
+                            if macd > 0 or p > ma20:
+                                target_pos = 1.0
+                            elif ai_win >= bt_vision:
+                                target_pos = 0.81
+                        else:
+                            if ai_win >= bt_vision + 2:
+                                target_pos = 0.50
+                            else:
+                                target_pos = 0.03
+                        
+                        total_assets = cash + shares * p
+                        target_val = total_assets * target_pos
+                        target_shares = int(target_val / p) if p > 0 else 0
+                        diff = target_shares - shares
+                        
+                        if abs(diff * p) > total_assets * 0.1:
+                            if diff > 0:
+                                cost = diff * p * 1.0003
+                                if cash >= cost:
+                                    cash -= cost
+                                    shares += diff
+                                    if entry_price == 0:
+                                        entry_price = p
+                            elif diff < 0:
+                                pnl = (p - entry_price) / entry_price if entry_price > 0 and shares > 0 else 0
+                                if pnl < -bt_stop / 100:
+                                    diff = -shares
+                                revenue = abs(diff) * p * 0.9997
+                                cash += revenue
+                                shares += diff
+                                if shares == 0:
+                                    entry_price = 0
+                        
+                        equity.append(cash + shares * p)
+                    
+                    if equity:
+                        ret = (equity[-1] - bt_cap) / bt_cap * 100
+                        bench_ret = (test_data['Close'].iloc[-1] - test_data['Close'].iloc[0]) / test_data['Close'].iloc[0] * 100
+                        all_results.append({
+                            'fold': fold_count,
+                            'train_start': split.train_start.strftime('%Y-%m-%d'),
+                            'train_end': split.train_end.strftime('%Y-%m-%d'),
+                            'test_start': split.test_start.strftime('%Y-%m-%d'),
+                            'test_end': split.test_end.strftime('%Y-%m-%d'),
+                            'return': ret,
+                            'benchmark': bench_ret,
+                            'alpha': ret - bench_ret,
+                            'trades': len(trade_log)
+                        })
+                
+                # 显示Walk-Forward结果
+                if all_results:
+                    results_df = pd.DataFrame(all_results)
+                    st.dataframe(results_df, use_container_width=True)
+                    
+                    # 绘制多fold结果
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=results_df['fold'],
+                        y=results_df['return'],
+                        mode='lines+markers',
+                        name='策略收益',
+                        line=dict(color='#ff4b4b', width=2)
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=results_df['fold'],
+                        y=results_df['benchmark'],
+                        mode='lines+markers',
+                        name='基准收益',
+                        line=dict(color='gray', dash='dash')
+                    ))
+                    fig.update_layout(
+                        title=f"Walk-Forward验证结果（{fold_count}个fold，训练期{wf_train_months}月，测试期{wf_test_months}月）",
+                        xaxis_title="Fold",
+                        yaxis_title="收益率 (%)",
+                        height=400
+                    )
+                    st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
+                    
+                    avg_return = results_df['return'].mean()
+                    avg_alpha = results_df['alpha'].mean()
+                    col1, col2 = st.columns(2)
+                    col1.metric("平均收益率", f"{avg_return:.2f}%")
+                    col2.metric("平均Alpha", f"{avg_alpha:.2f}%")
+                else:
+                    st.warning("Walk-Forward验证未生成结果，可能数据不足")
+            else:
+                # 简单回测（原有逻辑）
+                if len(df_bt) > 50:
+                    df_bt['MA20'] = df_bt['Close'].rolling(window=20).mean()
+                    df_bt['MA60'] = df_bt['Close'].rolling(window=bt_ma).mean()
+                    exp12 = df_bt['Close'].ewm(span=12, adjust=False).mean()
+                    exp26 = df_bt['Close'].ewm(span=26, adjust=False).mean()
+                    df_bt['MACD'] = (exp12 - exp26) * 2
+                    df_bt = df_bt.dropna()
+                    
+                    # 加载AI胜率数据（使用混合胜率，如果可用）
+                    pred_path = os.path.join(PROJECT_ROOT, "data", "indices", "prediction_cache.csv")
+                    vision_map = {}
+                    if os.path.exists(pred_path):
+                        try:
+                            pdf = pd.read_csv(pred_path)
+                            pdf['date'] = pdf['date'].astype(str).str.replace('-', '')
+                            pdf['symbol'] = pdf['symbol'].astype(str).str.zfill(6)
+                            vision_map = pdf.set_index(['symbol', 'date'])['pred_win_rate'].to_dict()
+                        except:
+                            pass
+                    
+                    cash, shares, equity = bt_cap, 0, []
+                    trade_log = []
+                    entry_price = 0.0
+                    
+                    for _, row in df_bt.iterrows():
+                        p = row['Close']
+                        ma20 = row.get('MA20', p)
+                        ma60 = row.get('MA60', p)
+                        macd = row.get('MACD', 0)
+                        date_str = row.name.strftime("%Y%m%d")
+                        ai_win = vision_map.get((symbol, date_str), 50.0)
+                        
+                        target_pos = 0.0
+                        if p > ma60:
+                            if macd > 0 or p > ma20:
+                                target_pos = 1.0
+                            elif ai_win >= bt_vision:
+                                target_pos = 0.81
+                        else:
+                            if ai_win >= bt_vision + 2:
+                                target_pos = 0.50
+                            else:
+                                target_pos = 0.03
+                        
+                        total_assets = cash + shares * p
+                        target_val = total_assets * target_pos
+                        target_shares = int(target_val / p) if p > 0 else 0
+                        diff = target_shares - shares
+                        
+                        if abs(diff * p) > total_assets * 0.1:
+                            if diff > 0:
+                                cost = diff * p * 1.0003
+                                if cash >= cost:
+                                    cash -= cost
+                                    shares += diff
+                                    if entry_price == 0:
+                                        entry_price = p
+                                    trade_log.append({'date': date_str, 'action': 'BUY', 'price': p})
+                            elif diff < 0:
+                                pnl = (p - entry_price) / entry_price if entry_price > 0 and shares > 0 else 0
+                                if pnl < -bt_stop / 100:
+                                    diff = -shares
+                                revenue = abs(diff) * p * 0.9997
+                                cash += revenue
+                                shares += diff
+                                if shares == 0:
+                                    entry_price = 0
+                                trade_log.append({'date': date_str, 'action': 'SELL', 'price': p})
+                        
+                        equity.append(cash + shares * p)
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=df_bt.index, y=equity, name="VQ 策略", 
+                                           line=dict(color='#ff4b4b', width=2)))
+                    bench = (df_bt['Close'] / df_bt['Close'].iloc[0]) * bt_cap
+                    fig.add_trace(go.Scatter(x=df_bt.index, y=bench, name="基准（买入持有）", 
+                                           line=dict(color='gray', dash='dash')))
+                    fig.update_layout(title="策略收益曲线", height=400)
+                    st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
+                    
+                    ret = (equity[-1] - bt_cap) / bt_cap * 100
+                    bench_ret = (df_bt['Close'].iloc[-1] - df_bt['Close'].iloc[0]) / df_bt['Close'].iloc[0] * 100
+                    alpha = ret - bench_ret
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("策略收益率", f"{ret:.2f}%")
+                    col2.metric("Alpha", f"{alpha:.2f}%", delta=f"{alpha:.2f}%")
+                    col3.metric("交易次数", len(trade_log))
+                    col4.metric("数据来源", "有AI数据" if vision_map else "无AI数据")
+                else:
+                    st.error("数据不足")
+        else:
+            st.error("数据获取失败")
+
+def _show_factor_analysis_integrated(symbol, df_f):
+    """整合的因子分析函数"""
+    try:
+        from src.factor_analysis.ic_analysis import ICAnalyzer
+        from src.factor_analysis.regime_detector import RegimeDetector
+        
+        # 使用实际数据计算因子值和收益率
+        returns = df_f['Close'].pct_change().dropna()
+        
+        # 简化：使用价格变化作为因子值（实际应该用K线学习因子）
+        # 这里我们使用K线学习因子的胜率作为因子值
+        factor_values = returns.rolling(window=5).mean()  # 5日平均收益率作为因子值
+        forward_returns = returns.shift(-5)  # 未来5日收益率
+        
+        # 对齐数据
+        common_index = factor_values.index.intersection(forward_returns.index)
+        factor_values = factor_values.loc[common_index]
+        forward_returns = forward_returns.loc[common_index]
+        
+        if len(factor_values) > 20:
+            # IC分析
+            ic_analyzer = ICAnalyzer(factor_values, forward_returns)
+            rolling_ic = ic_analyzer.calculate_rolling_ic(window=20)
+            
+            # Regime识别
+            regime_detector = RegimeDetector(df_f['Close'])
+            regimes = regime_detector.detect_regime()
+            
+            # 绘制IC曲线
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=rolling_ic.index,
+                y=rolling_ic.values,
+                mode='lines',
+                name='Rolling IC',
+                line=dict(color='blue', width=2)
+            ))
+            fig.add_hline(y=0.05, line_dash="dash", line_color="green", annotation_text="IC阈值(0.05)")
+            fig.add_hline(y=-0.05, line_dash="dash", line_color="red")
+            fig.update_layout(title="IC曲线分析", height=300)
+            st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
+            
+            # 显示IC统计
+            ic_stats = ic_analyzer.get_ic_statistics(rolling_ic)
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("平均IC", f"{ic_stats['mean_ic']:.4f}")
+            col2.metric("IC标准差", f"{ic_stats['std_ic']:.4f}")
+            col3.metric("ICIR", f"{ic_stats['ic_ir']:.2f}")
+            col4.metric("正IC比例", f"{ic_stats['positive_ic_ratio']*100:.1f}%")
+            
+            # Regime识别图
+            st.subheader("🌍 市场Regime识别")
+            regime_counts = regimes.value_counts()
+            fig_regime = go.Figure(data=[go.Bar(
+                x=regime_counts.index,
+                y=regime_counts.values,
+                marker_color=['green' if r == 'Bull' else 'red' if r == 'Bear' else 'yellow' 
+                             for r in regime_counts.index]
+            )])
+            fig_regime.update_layout(title="市场Regime分布", height=300)
+            st.plotly_chart(fig_regime, config={"displayModeBar": False}, use_container_width=True)
+        else:
+            st.warning("数据不足，无法进行因子分析")
+    except Exception as e:
+        st.error(f"因子分析失败: {e}")
+        import traceback
+        st.code(traceback.format_exc())
