@@ -115,7 +115,7 @@ def process_stock_triple_barrier(symbol: str, dates: pd.Series) -> pd.DataFrame:
 
 def save_labels_to_hdf5(df: pd.DataFrame, hdf5_path: str):
     """
-    保存标签到HDF5文件
+    保存标签到HDF5文件（使用pandas HDFStore，更稳定）
     
     Args:
         df: 标签DataFrame
@@ -125,76 +125,36 @@ def save_labels_to_hdf5(df: pd.DataFrame, hdf5_path: str):
         return
     
     try:
-        import tables as tb
+        # 使用pandas的HDFStore（更稳定，支持字符串列）
+        store = pd.HDFStore(hdf5_path, mode='a')
         
-        # 创建或打开HDF5文件
-        with tb.open_file(hdf5_path, mode='a') as h5file:
-            # 检查表是否存在
-            if '/labels' in h5file:
-                # 追加模式
-                table = h5file.root.labels
-                # 检查重复（基于symbol+date）
-                existing = pd.DataFrame(table.read())
-                if not existing.empty:
-                    existing['key'] = existing['symbol'].astype(str) + existing['date'].astype(str)
-                    df['key'] = df['symbol'].astype(str) + df['date'].astype(str)
-                    df = df[~df['key'].isin(existing['key'])]
-                    df = df.drop(columns=['key'])
-                
-                if not df.empty:
-                    # 追加新数据
-                    table.append(df.to_records(index=False))
-            else:
-                # 创建新表
-                table = h5file.create_table(
-                    '/',
-                    'labels',
-                    description={
-                        'symbol': tb.StringCol(6),
-                        'date': tb.StringCol(8),
-                        'label': tb.Int32Col(),
-                        'hit_day': tb.Int32Col(),
-                        'hit_type': tb.StringCol(10),
-                        'max_return': tb.Float32Col(),
-                        'min_return': tb.Float32Col(),
-                        'final_return': tb.Float32Col()
-                    }
-                )
-                table.append(df.to_records(index=False))
-            
-            h5file.flush()
-            
-    except ImportError:
-        # 如果没有tables库，使用pandas的HDFStore
-        try:
-            store = pd.HDFStore(hdf5_path, mode='a')
-            if 'labels' in store:
-                # 读取现有数据
-                existing = store['labels']
-                # 合并（去重）
-                combined = pd.concat([existing, df]).drop_duplicates(
-                    subset=['symbol', 'date'],
-                    keep='last'
-                )
-                store['labels'] = combined
-            else:
-                store['labels'] = df
-            store.close()
-        except Exception as e:
-            print(f"⚠️ HDF5保存失败，使用CSV备份: {e}")
-            # CSV备份
-            csv_path = hdf5_path.replace('.h5', '.csv')
-            if os.path.exists(csv_path):
-                existing = pd.read_csv(csv_path)
-                combined = pd.concat([existing, df]).drop_duplicates(
-                    subset=['symbol', 'date'],
-                    keep='last'
-                )
-                combined.to_csv(csv_path, index=False)
-            else:
-                df.to_csv(csv_path, index=False)
+        if 'labels' in store:
+            # 读取现有数据
+            existing = store['labels']
+            # 合并（去重）
+            combined = pd.concat([existing, df]).drop_duplicates(
+                subset=['symbol', 'date'],
+                keep='last'
+            )
+            store['labels'] = combined
+        else:
+            store['labels'] = df
+        
+        store.close()
+        
     except Exception as e:
-        print(f"⚠️ HDF5保存失败: {e}")
+        print(f"⚠️ HDF5保存失败，使用CSV备份: {e}")
+        # CSV备份
+        csv_path = hdf5_path.replace('.h5', '.csv')
+        if os.path.exists(csv_path):
+            existing = pd.read_csv(csv_path)
+            combined = pd.concat([existing, df]).drop_duplicates(
+                subset=['symbol', 'date'],
+                keep='last'
+            )
+            combined.to_csv(csv_path, index=False)
+        else:
+            df.to_csv(csv_path, index=False)
 
 
 def batch_calculate_triple_barrier_labels():

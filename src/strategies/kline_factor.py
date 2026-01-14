@@ -26,6 +26,9 @@ if PROJECT_ROOT not in sys.path:
 
 from src.data.triple_barrier import TripleBarrierLabeler, TripleBarrierPredictor, calculate_win_loss_ratio
 
+# HDF5标签文件路径
+HDF5_LABELS_PATH = os.path.join(PROJECT_ROOT, "data", "indices", "triple_barrier_labels.h5")
+
 
 class KLineFactorCalculator:
     """

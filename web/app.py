@@ -337,13 +337,20 @@ if mode == "🔍 实盘深度研判":
             create_comparison_plot(q_p, matches, c_p)
 
             # === 保存结果到 Session ===
-            st.session_state.res = {
+            res_dict = {
                 "name": stock_name, "c_p": c_p, "trajs": trajs, "mean": mean_path,
                 "win": win_rate, "ret": avg_ret, "labels": traj_labels,
                 "score": total_score, "act": initial_action, "det": s_details,
                 "fund": fund_data, "df_f": df_f, "ind": ind_name, "peers": peers_df,
                 "news": news_text, "rep": report
             }
+            
+            # 保存混合胜率（如果计算了）
+            if 'hybrid_win_rate' in locals() and not np.isnan(hybrid_win_rate):
+                res_dict["hybrid_win_rate"] = hybrid_win_rate
+                res_dict["traditional_win_rate"] = traditional_win_rate
+            
+            st.session_state.res = res_dict
 
             # 构建上下文给 Chat 用
             st.session_state.last_context = f"""
