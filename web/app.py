@@ -54,231 +54,395 @@ def _code_version_key() -> str:
 # ================= 页面配置 =================
 st.set_page_config(page_title="VisionQuant Pro", layout="wide", page_icon="📊", initial_sidebar_state="expanded")
 
-# ================= 专业工业软件风格 UI (Bloomberg Terminal / Wind 风格) =================
+# ================= Apple风格现代UI设计 =================
 st.markdown("""
     <style>
-    /* 专业金融终端风格 - 深色主题，数据密集，专业图表 */
-    
-    /* 全局样式 - 深色专业主题 */
-    .main {
-        background: #0d1117;
-        color: #c9d1d9;
-        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace;
+    /* --- 核心变量 --- */
+    :root {
+        --bg-color: #000000;
+        --surface-color: #121212;
+        --surface-hover: #1d1d1f;
+        --text-primary: #f5f5f7;
+        --text-secondary: #86868b;
+        --accent-blue: #2997ff;
+        --accent-glow: radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(0,0,0,0) 70%);
+        --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
     
-    /* 侧边栏样式 - 深色专业 */
+    /* --- 全局样式 --- */
+    .main {
+        background: var(--bg-color);
+        color: var(--text-primary);
+        font-family: var(--font-main);
+        -webkit-font-smoothing: antialiased;
+    }
+    
+    /* --- 侧边栏样式 (Glassmorphism) --- */
     [data-testid="stSidebar"] {
-        background: #161b22;
-        border-right: 1px solid #30363d;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255,255,255,0.05);
     }
     
     [data-testid="stSidebar"] * {
-        color: #c9d1d9;
+        color: var(--text-primary);
     }
     
-    /* 主内容区 */
+    [data-testid="stSidebar"] h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        color: var(--text-secondary);
+    }
+    
+    /* --- 主内容区 --- */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 1rem;
-        max-width: 100%;
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 1400px;
     }
     
-    /* Metric组件 - 专业数据展示 */
+    /* --- Metric组件 - 现代卡片 --- */
     [data-testid="stMetric"] {
-        background: #161b22;
-        border: 1px solid #30363d;
-        padding: 12px 16px;
-        border-radius: 4px;
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.05);
+        padding: 1.5rem;
+        border-radius: 16px;
+        transition: all 0.3s ease;
+    }
+    
+    [data-testid="stMetric"]:hover {
+        background: var(--surface-hover);
+        transform: translateY(-2px);
     }
     
     [data-testid="stMetric"] > div {
-        color: #c9d1d9;
+        color: var(--text-primary);
     }
     
     [data-testid="stMetric"] > div > label {
-        color: #8b949e;
-        font-size: 11px;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-weight: 500;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     
     [data-testid="stMetric"] > div > div {
-        color: #58a6ff;
-        font-size: 20px;
+        color: var(--text-primary);
+        font-size: 1.5rem;
         font-weight: 600;
     }
     
-    /* 按钮样式 - 专业简洁 */
+    [data-testid="stMetric"] [data-testid="stMetricDelta"] {
+        color: var(--accent-blue);
+        font-size: 0.9rem;
+    }
+    
+    /* --- 按钮样式 - Apple风格 --- */
     .stButton > button {
-        background: #238636;
-        color: #ffffff;
-        border: 1px solid #2ea043;
-        border-radius: 4px;
-        padding: 8px 16px;
+        background: #ffffff;
+        color: #000000;
+        border: none;
+        border-radius: 980px;
+        padding: 0.6rem 1.5rem;
         font-weight: 500;
-        font-size: 13px;
-        transition: background 0.15s ease;
+        font-size: 0.9rem;
+        transition: transform 0.2s ease, background 0.2s ease;
+        cursor: pointer;
     }
     
     .stButton > button:hover {
-        background: #2ea043;
-        border-color: #3fb950;
+        transform: scale(1.05);
+        background: #f5f5f7;
     }
     
-    /* 输入框样式 - 专业简洁 */
+    /* 主要按钮（红色） */
+    .stButton > button[kind="primary"] {
+        background: #ff3b30;
+        color: #ffffff;
+    }
+    
+    .stButton > button[kind="primary"]:hover {
+        background: #ff453a;
+    }
+    
+    /* --- 输入框样式 --- */
     .stTextInput > div > div > input {
-        background: #0d1117;
-        border: 1px solid #30363d;
-        border-radius: 4px;
-        padding: 8px 12px;
-        color: #c9d1d9;
-        font-size: 13px;
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
     }
     
     .stTextInput > div > div > input:focus {
-        border-color: #58a6ff;
+        border-color: var(--accent-blue);
         outline: none;
+        box-shadow: 0 0 0 3px rgba(41, 151, 255, 0.1);
     }
     
-    /* 标题样式 - 专业简洁 */
+    .stTextInput > div > div > input::placeholder {
+        color: var(--text-secondary);
+    }
+    
+    /* --- 标题样式 - 渐变文字效果 --- */
     h1 {
-        font-size: 24px;
-        font-weight: 600;
-        color: #f0f6fc;
-        margin-bottom: 16px;
-        border-bottom: 1px solid #30363d;
-        padding-bottom: 8px;
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        font-weight: 700;
+        letter-spacing: -1px;
+        line-height: 1.1;
+        margin-bottom: 1rem;
+        background: linear-gradient(180deg, #ffffff 20%, #86868b 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
     
     h2 {
-        font-size: 18px;
+        font-size: 2rem;
         font-weight: 600;
-        color: #f0f6fc;
-        margin-top: 24px;
-        margin-bottom: 12px;
+        color: var(--text-primary);
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        letter-spacing: -0.5px;
     }
     
     h3 {
-        font-size: 14px;
+        font-size: 1.25rem;
         font-weight: 600;
-        color: #c9d1d9;
-        margin-top: 16px;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        color: var(--text-primary);
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
     }
     
-    /* 核心决策框样式 - 专业信息框 */
+    /* --- 文本颜色 --- */
+    p, span, div, label {
+        color: var(--text-primary);
+    }
+    
+    /* --- 核心决策框样式 --- */
     .agent-box {
-        background: #161b22;
-        border-left: 3px solid #58a6ff;
-        padding: 16px;
-        border-radius: 4px;
-        margin: 16px 0;
-        border: 1px solid #30363d;
+        background: var(--surface-color);
+        border-left: 3px solid var(--accent-blue);
+        padding: 1.5rem;
+        border-radius: 16px;
+        margin: 1.5rem 0;
+        border: 1px solid rgba(255,255,255,0.05);
     }
     
-    /* 聊天气泡 - 专业简洁 */
+    .agent-box h2 {
+        color: var(--accent-blue);
+        font-size: 1.5rem;
+        margin-top: 0;
+    }
+    
+    .agent-box p {
+        color: var(--text-secondary);
+        line-height: 1.6;
+    }
+    
+    /* --- 聊天气泡 --- */
     [data-testid="stChatMessage"] {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 4px;
-        padding: 12px 16px;
-        margin-bottom: 8px;
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 16px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 0.75rem;
     }
     
-    /* 分割线 */
+    /* --- 分割线 --- */
     hr {
         border: none;
         height: 1px;
-        background: #30363d;
-        margin: 16px 0;
+        background: rgba(255,255,255,0.1);
+        margin: 2rem 0;
     }
     
-    /* 侧边栏标题 */
-    [data-testid="stSidebar"] h1 {
-        font-size: 18px;
-        font-weight: 600;
-        color: #f0f6fc;
-        margin-bottom: 12px;
-    }
-    
-    /* 卡片容器 - 专业数据面板 */
+    /* --- 卡片容器 --- */
     .card-container {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 4px;
-        padding: 16px;
-        margin: 12px 0;
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 20px;
+        padding: 2rem;
+        margin: 1.5rem 0;
+        transition: all 0.3s ease;
     }
     
-    /* 图表容器 */
+    .card-container:hover {
+        background: var(--surface-hover);
+        transform: translateY(-2px);
+    }
+    
+    /* --- 图表容器 --- */
     .plotly-container {
-        background: #0d1117;
-        border: 1px solid #30363d;
-        border-radius: 4px;
-        padding: 12px;
-        margin: 12px 0;
+        background: var(--surface-color);
+        border-radius: 16px;
+        padding: 1rem;
+        margin: 1rem 0;
     }
     
-    /* 表格样式 */
+    /* --- 表格样式 --- */
     .dataframe {
-        background: #161b22;
-        color: #c9d1d9;
+        background: var(--surface-color);
+        color: var(--text-primary);
+        border: 1px solid rgba(255,255,255,0.05);
+        border-radius: 12px;
     }
     
-    /* 滚动条样式 - 专业深色 */
+    .dataframe th {
+        background: var(--surface-hover);
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+    
+    .dataframe td {
+        color: var(--text-primary);
+    }
+    
+    /* --- 滚动条样式 --- */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
     
     ::-webkit-scrollbar-track {
-        background: #0d1117;
+        background: var(--bg-color);
     }
     
     ::-webkit-scrollbar-thumb {
-        background: #30363d;
+        background: var(--surface-color);
         border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: #484f58;
+        background: var(--surface-hover);
     }
     
-    /* 文本颜色 */
-    p, span, div {
-        color: #c9d1d9;
-    }
-    
-    /* 标签颜色 */
-    label {
-        color: #8b949e;
-    }
-    
-    /* 成功/警告/错误颜色 */
+    /* --- 成功/警告/错误/信息样式 --- */
     .stSuccess {
-        background: #1a472a;
-        border-color: #238636;
-        color: #3fb950;
+        background: rgba(52, 199, 89, 0.1);
+        border: 1px solid rgba(52, 199, 89, 0.3);
+        border-radius: 12px;
+        color: #34c759;
+        padding: 1rem;
     }
     
     .stWarning {
-        background: #5c4d1a;
-        border-color: #d29922;
-        color: #f1e05a;
+        background: rgba(255, 204, 0, 0.1);
+        border: 1px solid rgba(255, 204, 0, 0.3);
+        border-radius: 12px;
+        color: #ffcc00;
+        padding: 1rem;
     }
     
     .stError {
-        background: #5a1a1a;
-        border-color: #da3633;
-        color: #f85149;
+        background: rgba(255, 59, 48, 0.1);
+        border: 1px solid rgba(255, 59, 48, 0.3);
+        border-radius: 12px;
+        color: #ff3b30;
+        padding: 1rem;
     }
     
     .stInfo {
-        background: #1c2128;
-        border-color: #30363d;
-        color: #58a6ff;
+        background: rgba(41, 151, 255, 0.1);
+        border: 1px solid rgba(41, 151, 255, 0.3);
+        border-radius: 12px;
+        color: var(--accent-blue);
+        padding: 1rem;
+    }
+    
+    /* --- Radio按钮样式 --- */
+    .stRadio > div {
+        background: var(--surface-color);
+        border-radius: 12px;
+        padding: 0.5rem;
+    }
+    
+    .stRadio label {
+        color: var(--text-primary);
+    }
+    
+    /* --- Checkbox样式 --- */
+    .stCheckbox label {
+        color: var(--text-primary);
+    }
+    
+    /* --- Slider样式 --- */
+    .stSlider label {
+        color: var(--text-primary);
+    }
+    
+    /* --- Selectbox样式 --- */
+    .stSelectbox label {
+        color: var(--text-primary);
+    }
+    
+    .stSelectbox > div > div {
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        color: var(--text-primary);
+    }
+    
+    /* --- Date Input样式 --- */
+    .stDateInput label {
+        color: var(--text-primary);
+    }
+    
+    .stDateInput > div > div > input {
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        color: var(--text-primary);
+    }
+    
+    /* --- Number Input样式 --- */
+    .stNumberInput label {
+        color: var(--text-primary);
+    }
+    
+    .stNumberInput > div > div > input {
+        background: var(--surface-color);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        color: var(--text-primary);
+    }
+    
+    /* --- Expander样式 --- */
+    .streamlit-expanderHeader {
+        background: var(--surface-color);
+        color: var(--text-primary);
+        border-radius: 12px;
+    }
+    
+    .streamlit-expanderContent {
+        background: var(--surface-color);
+        color: var(--text-primary);
+    }
+    
+    /* --- Caption样式 --- */
+    .stCaption {
+        color: var(--text-secondary);
+    }
+    
+    /* --- Divider样式 --- */
+    .stDivider {
+        border-color: rgba(255,255,255,0.1);
+    }
+    
+    /* --- 确保所有文本清晰可读 --- */
+    * {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -1259,16 +1423,16 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                         y=results_df['return'],
                         mode='lines+markers',
                         name='策略收益',
-                        line=dict(color='#58a6ff', width=2),
-                        marker=dict(size=6, color='#58a6ff')
+                        line=dict(color='#2997ff', width=2.5),
+                        marker=dict(size=7, color='#2997ff')
                     ))
                     fig.add_trace(go.Scatter(
                         x=results_df['fold'],
                         y=results_df['benchmark'],
                         mode='lines+markers',
                         name='基准收益',
-                        line=dict(color='#8b949e', width=1, dash='dash'),
-                        marker=dict(size=4, color='#8b949e')
+                        line=dict(color='#86868b', width=2, dash='dash'),
+                        marker=dict(size=5, color='#86868b')
                     ))
                     fig.update_layout(
                         title=f"Walk-Forward验证结果（{fold_count}个fold，训练期{wf_train_months}月，测试期{wf_test_months}月）",
@@ -1384,25 +1548,25 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                         x=df_bt.index, 
                         y=equity, 
                         name="VQ 策略", 
-                        line=dict(color='#58a6ff', width=2)
+                        line=dict(color='#2997ff', width=2.5)
                     ))
                     bench = (df_bt['Close'] / df_bt['Close'].iloc[0]) * bt_cap
                     fig.add_trace(go.Scatter(
                         x=df_bt.index, 
                         y=bench, 
                         name="基准（买入持有）", 
-                        line=dict(color='#8b949e', width=1, dash='dash')
+                        line=dict(color='#86868b', width=2, dash='dash')
                     ))
                     fig.update_layout(
                         title="策略收益曲线",
                         height=400,
-                        plot_bgcolor='#0d1117',
-                        paper_bgcolor='#0d1117',
-                        font=dict(color='#c9d1d9', size=11),
+                        plot_bgcolor='#000000',
+                        paper_bgcolor='#000000',
+                        font=dict(color='#f5f5f7', size=12, family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
                         hovermode='x unified',
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='#161b22', bordercolor='#30363d'),
-                        xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
-                        yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(18,18,18,0.8)', bordercolor='rgba(255,255,255,0.1)'),
+                        xaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7')),
+                        yaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7'))
                     )
                     st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
                     
@@ -1492,29 +1656,31 @@ def _show_factor_analysis_integrated(symbol, df_f):
             ic_analyzer = ICAnalyzer(factor_values, forward_returns)
             rolling_ic = ic_analyzer.calculate_rolling_ic(window=min(20, len(factor_values)//2))
             
-            # 绘制IC曲线 - 专业风格
+            # 绘制IC曲线 - Apple风格
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=rolling_ic.index,
                 y=rolling_ic.values,
                 mode='lines',
                 name='Rolling IC',
-                line=dict(color='#58a6ff', width=2)
+                line=dict(color='#2997ff', width=2.5)
             ))
-            fig.add_hline(y=0.05, line_dash="dash", line_color="#3fb950", 
-                         annotation_text="IC阈值(0.05)", annotation_position="right")
-            fig.add_hline(y=-0.05, line_dash="dash", line_color="#f85149", 
-                         annotation_text="IC阈值(-0.05)", annotation_position="right")
-            fig.add_hline(y=0, line_dash="dot", line_color="#8b949e", opacity=0.5)
+            fig.add_hline(y=0.05, line_dash="dash", line_color="#34c759", 
+                         annotation_text="IC阈值(0.05)", annotation_position="right",
+                         annotation_font=dict(color='#34c759'))
+            fig.add_hline(y=-0.05, line_dash="dash", line_color="#ff3b30", 
+                         annotation_text="IC阈值(-0.05)", annotation_position="right",
+                         annotation_font=dict(color='#ff3b30'))
+            fig.add_hline(y=0, line_dash="dot", line_color="#86868b", opacity=0.5)
             fig.update_layout(
                 title="IC曲线分析 - K线学习因子有效性",
                 height=400,
-                plot_bgcolor='#0d1117',
-                paper_bgcolor='#0d1117',
-                font=dict(color='#c9d1d9', size=11),
+                plot_bgcolor='#000000',
+                paper_bgcolor='#000000',
+                font=dict(color='#f5f5f7', size=12, family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
                 hovermode='x unified',
-                xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
-                yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
+                xaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7')),
+                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7'))
             )
             st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
             
@@ -1539,22 +1705,23 @@ def _show_factor_analysis_integrated(symbol, df_f):
             regimes = regime_detector.detect_regime()
             regime_counts = regimes.value_counts()
             
-            colors_map = {'Bull': '#3fb950', 'Bear': '#f85149', 'Oscillating': '#d29922'}
+            colors_map = {'Bull': '#34c759', 'Bear': '#ff3b30', 'Oscillating': '#ffcc00'}
             fig_regime = go.Figure(data=[go.Bar(
                 x=regime_counts.index,
                 y=regime_counts.values,
-                marker_color=[colors_map.get(r, '#8b949e') for r in regime_counts.index],
+                marker_color=[colors_map.get(r, '#86868b') for r in regime_counts.index],
                 text=regime_counts.values,
-                textposition='outside'
+                textposition='outside',
+                textfont=dict(color='#f5f5f7', size=12)
             )])
             fig_regime.update_layout(
                 title="市场Regime分布",
                 height=350,
-                plot_bgcolor='#0d1117',
-                paper_bgcolor='#0d1117',
-                font=dict(color='#c9d1d9', size=11),
-                xaxis=dict(gridcolor='#30363d', linecolor='#30363d'),
-                yaxis=dict(gridcolor='#30363d', linecolor='#30363d')
+                plot_bgcolor='#000000',
+                paper_bgcolor='#000000',
+                font=dict(color='#f5f5f7', size=12, family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
+                xaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7')),
+                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7'))
             )
             st.plotly_chart(fig_regime, config={"displayModeBar": False}, use_container_width=True)
             
