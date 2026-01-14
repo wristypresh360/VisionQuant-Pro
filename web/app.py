@@ -52,398 +52,16 @@ def _code_version_key() -> str:
     return "|".join(parts)
 
 # ================= 页面配置 =================
-st.set_page_config(page_title="VisionQuant Pro", layout="wide", page_icon="📊", initial_sidebar_state="expanded")
+st.set_page_config(page_title="VisionQuant Pro", layout="wide", page_icon="🦄")
 
-# ================= Apple风格现代UI设计 =================
 st.markdown("""
     <style>
-    /* --- 核心变量 --- */
-    :root {
-        --bg-color: #000000;
-        --surface-color: #121212;
-        --surface-hover: #1d1d1f;
-        --text-primary: #f5f5f7;
-        --text-secondary: #86868b;
-        --accent-blue: #2997ff;
-        --accent-glow: radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(0,0,0,0) 70%);
-        --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-    
-    /* --- 全局样式 --- */
-    .main {
-        background: var(--bg-color);
-        color: var(--text-primary);
-        font-family: var(--font-main);
-        -webkit-font-smoothing: antialiased;
-    }
-    
-    /* --- 侧边栏样式 (Glassmorphism) --- */
-    [data-testid="stSidebar"] {
-        background: rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255,255,255,0.05);
-    }
-    
-    [data-testid="stSidebar"] * {
-        color: var(--text-primary);
-    }
-    
-    [data-testid="stSidebar"] h1 {
-        font-size: 1.5rem;
-        font-weight: 600;
-        letter-spacing: -0.5px;
-        color: var(--text-primary);
-        margin-bottom: 1rem;
-    }
-    
-    [data-testid="stSidebar"] .stMarkdown {
-        color: var(--text-secondary);
-    }
-    
-    /* --- 主内容区 --- */
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1400px;
-    }
-    
-    /* --- Metric组件 - 现代卡片 --- */
-    [data-testid="stMetric"] {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.05);
-        padding: 1.5rem;
-        border-radius: 16px;
-        transition: all 0.3s ease;
-    }
-    
-    [data-testid="stMetric"]:hover {
-        background: var(--surface-hover);
-        transform: translateY(-2px);
-    }
-    
-    [data-testid="stMetric"] > div {
-        color: var(--text-primary);
-    }
-    
-    [data-testid="stMetric"] > div > label {
-        color: var(--text-secondary);
-        font-size: 0.75rem;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    [data-testid="stMetric"] > div > div {
-        color: var(--text-primary);
-        font-size: 1.5rem;
-        font-weight: 600;
-    }
-    
-    [data-testid="stMetric"] [data-testid="stMetricDelta"] {
-        color: var(--accent-blue);
-        font-size: 0.9rem;
-    }
-    
-    /* --- 按钮样式 - Apple风格 --- */
-    .stButton > button {
-        background: #ffffff;
-        color: #000000;
-        border: none;
-        border-radius: 980px;
-        padding: 0.6rem 1.5rem;
-        font-weight: 500;
-        font-size: 0.9rem;
-        transition: transform 0.2s ease, background 0.2s ease;
-        cursor: pointer;
-    }
-    
-    .stButton > button:hover {
-        transform: scale(1.05);
-        background: #f5f5f7;
-    }
-    
-    /* 主要按钮（红色） */
-    .stButton > button[kind="primary"] {
-        background: #ff3b30;
-        color: #ffffff;
-    }
-    
-    .stButton > button[kind="primary"]:hover {
-        background: #ff453a;
-    }
-    
-    /* --- 输入框样式 --- */
-    .stTextInput > div > div > input {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 12px;
-        padding: 0.75rem 1rem;
-        color: var(--text-primary);
-        font-size: 0.9rem;
-        transition: all 0.2s ease;
-    }
-    
-    .stTextInput > div > div > input:focus {
-        border-color: var(--accent-blue);
-        outline: none;
-        box-shadow: 0 0 0 3px rgba(41, 151, 255, 0.1);
-    }
-    
-    .stTextInput > div > div > input::placeholder {
-        color: var(--text-secondary);
-    }
-    
-    /* --- 标题样式 - 渐变文字效果 --- */
-    h1 {
-        font-size: clamp(2rem, 5vw, 3.5rem);
-        font-weight: 700;
-        letter-spacing: -1px;
-        line-height: 1.1;
-        margin-bottom: 1rem;
-        background: linear-gradient(180deg, #ffffff 20%, #86868b 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }
-    
-    h2 {
-        font-size: 2rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-        letter-spacing: -0.5px;
-    }
-    
-    h3 {
-        font-size: 1.25rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-    }
-    
-    /* --- 文本颜色 --- */
-    p, span, div, label {
-        color: var(--text-primary);
-    }
-    
-    /* --- 核心决策框样式 --- */
-    .agent-box {
-        background: var(--surface-color);
-        border-left: 3px solid var(--accent-blue);
-        padding: 1.5rem;
-        border-radius: 16px;
-        margin: 1.5rem 0;
-        border: 1px solid rgba(255,255,255,0.05);
-    }
-    
-    .agent-box h2 {
-        color: var(--accent-blue);
-        font-size: 1.5rem;
-        margin-top: 0;
-    }
-    
-    .agent-box p {
-        color: var(--text-secondary);
-        line-height: 1.6;
-    }
-    
-    /* --- 聊天气泡 --- */
-    [data-testid="stChatMessage"] {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 16px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 0.75rem;
-    }
-    
-    /* --- 分割线 --- */
-    hr {
-        border: none;
-        height: 1px;
-        background: rgba(255,255,255,0.1);
-        margin: 2rem 0;
-    }
-    
-    /* --- 卡片容器 --- */
-    .card-container {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 20px;
-        padding: 2rem;
-        margin: 1.5rem 0;
-        transition: all 0.3s ease;
-    }
-    
-    .card-container:hover {
-        background: var(--surface-hover);
-        transform: translateY(-2px);
-    }
-    
-    /* --- 图表容器 --- */
-    .plotly-container {
-        background: var(--surface-color);
-        border-radius: 16px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-    
-    /* --- 表格样式 --- */
-    .dataframe {
-        background: var(--surface-color);
-        color: var(--text-primary);
-        border: 1px solid rgba(255,255,255,0.05);
-        border-radius: 12px;
-    }
-    
-    .dataframe th {
-        background: var(--surface-hover);
-        color: var(--text-primary);
-        font-weight: 600;
-    }
-    
-    .dataframe td {
-        color: var(--text-primary);
-    }
-    
-    /* --- 滚动条样式 --- */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: var(--bg-color);
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: var(--surface-color);
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: var(--surface-hover);
-    }
-    
-    /* --- 成功/警告/错误/信息样式 --- */
-    .stSuccess {
-        background: rgba(52, 199, 89, 0.1);
-        border: 1px solid rgba(52, 199, 89, 0.3);
-        border-radius: 12px;
-        color: #34c759;
-        padding: 1rem;
-    }
-    
-    .stWarning {
-        background: rgba(255, 204, 0, 0.1);
-        border: 1px solid rgba(255, 204, 0, 0.3);
-        border-radius: 12px;
-        color: #ffcc00;
-        padding: 1rem;
-    }
-    
-    .stError {
-        background: rgba(255, 59, 48, 0.1);
-        border: 1px solid rgba(255, 59, 48, 0.3);
-        border-radius: 12px;
-        color: #ff3b30;
-        padding: 1rem;
-    }
-    
-    .stInfo {
-        background: rgba(41, 151, 255, 0.1);
-        border: 1px solid rgba(41, 151, 255, 0.3);
-        border-radius: 12px;
-        color: var(--accent-blue);
-        padding: 1rem;
-    }
-    
-    /* --- Radio按钮样式 --- */
-    .stRadio > div {
-        background: var(--surface-color);
-        border-radius: 12px;
-        padding: 0.5rem;
-    }
-    
-    .stRadio label {
-        color: var(--text-primary);
-    }
-    
-    /* --- Checkbox样式 --- */
-    .stCheckbox label {
-        color: var(--text-primary);
-    }
-    
-    /* --- Slider样式 --- */
-    .stSlider label {
-        color: var(--text-primary);
-    }
-    
-    /* --- Selectbox样式 --- */
-    .stSelectbox label {
-        color: var(--text-primary);
-    }
-    
-    .stSelectbox > div > div {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 12px;
-        color: var(--text-primary);
-    }
-    
-    /* --- Date Input样式 --- */
-    .stDateInput label {
-        color: var(--text-primary);
-    }
-    
-    .stDateInput > div > div > input {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 12px;
-        color: var(--text-primary);
-    }
-    
-    /* --- Number Input样式 --- */
-    .stNumberInput label {
-        color: var(--text-primary);
-    }
-    
-    .stNumberInput > div > div > input {
-        background: var(--surface-color);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 12px;
-        color: var(--text-primary);
-    }
-    
-    /* --- Expander样式 --- */
-    .streamlit-expanderHeader {
-        background: var(--surface-color);
-        color: var(--text-primary);
-        border-radius: 12px;
-    }
-    
-    .streamlit-expanderContent {
-        background: var(--surface-color);
-        color: var(--text-primary);
-    }
-    
-    /* --- Caption样式 --- */
-    .stCaption {
-        color: var(--text-secondary);
-    }
-    
-    /* --- Divider样式 --- */
-    .stDivider {
-        border-color: rgba(255,255,255,0.1);
-    }
-    
-    /* --- 确保所有文本清晰可读 --- */
-    * {
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-    }
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; border: 1px solid #e6e9ef; }
+    /* 核心决策框样式 */
+    .agent-box { border-left: 5px solid #ff4b4b; padding: 20px; background-color: #fff1f1; border-radius: 5px; margin-bottom: 20px; }
+    /* 聊天气泡 */
+    .stChatMessage { background-color: #ffffff; border-radius: 12px; padding: 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -931,7 +549,7 @@ if mode == "🔍 单只股票分析":
         # === 整合功能：回测和因子分析 ===
         # 检查是否显示回测
         if show_backtest and "res" in st.session_state:
-            st.markdown('<div class="card-container">', unsafe_allow_html=True)
+            st.divider()
             st.subheader("🧪 策略模拟回测")
             
             # 回测参数（从侧边栏重新获取，确保使用最新值）
@@ -945,18 +563,16 @@ if mode == "🔍 单只股票分析":
             wf_train_months_val = st.session_state.get("wf_train_months", 24)
             wf_test_months_val = st.session_state.get("wf_test_months", 6)
             
-            if st.button("🚀 开始回测", key="backtest_btn", use_container_width=True):
+            if st.button("开始回测", key="backtest_btn"):
                 _run_backtest_integrated(symbol, bt_start_val, bt_end_val, bt_cap_val, bt_ma_val, 
                                         bt_stop_val, bt_vision_val, bt_validation_val, 
                                         wf_train_months_val, wf_test_months_val)
-            st.markdown('</div>', unsafe_allow_html=True)
         
         # 检查是否显示因子分析
         if show_factor_analysis and "res" in st.session_state:
-            st.markdown('<div class="card-container">', unsafe_allow_html=True)
+            st.divider()
             st.subheader("📈 因子有效性分析")
             _show_factor_analysis_integrated(symbol, d["df_f"])
-            st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 模式 B: 批量组合分析 ---
 elif mode == "📊 批量组合分析":
@@ -1423,16 +1039,14 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                         y=results_df['return'],
                         mode='lines+markers',
                         name='策略收益',
-                        line=dict(color='#2997ff', width=2.5),
-                        marker=dict(size=7, color='#2997ff')
+                        line=dict(color='#ff4b4b', width=2)
                     ))
                     fig.add_trace(go.Scatter(
                         x=results_df['fold'],
                         y=results_df['benchmark'],
                         mode='lines+markers',
                         name='基准收益',
-                        line=dict(color='#86868b', width=2, dash='dash'),
-                        marker=dict(size=5, color='#86868b')
+                        line=dict(color='gray', dash='dash')
                     ))
                     fig.update_layout(
                         title=f"Walk-Forward验证结果（{fold_count}个fold，训练期{wf_train_months}月，测试期{wf_test_months}月）",
@@ -1544,30 +1158,12 @@ def _run_backtest_integrated(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, b
                     
                     # 绘制收益曲线 - 专业风格
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=df_bt.index, 
-                        y=equity, 
-                        name="VQ 策略", 
-                        line=dict(color='#2997ff', width=2.5)
-                    ))
+                    fig.add_trace(go.Scatter(x=df_bt.index, y=equity, name="VQ 策略", 
+                                           line=dict(color='#ff4b4b', width=2)))
                     bench = (df_bt['Close'] / df_bt['Close'].iloc[0]) * bt_cap
-                    fig.add_trace(go.Scatter(
-                        x=df_bt.index, 
-                        y=bench, 
-                        name="基准（买入持有）", 
-                        line=dict(color='#86868b', width=2, dash='dash')
-                    ))
-                    fig.update_layout(
-                        title="策略收益曲线",
-                        height=400,
-                        plot_bgcolor='#000000',
-                        paper_bgcolor='#000000',
-                        font=dict(color='#f5f5f7', size=12, family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
-                        hovermode='x unified',
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor='rgba(18,18,18,0.8)', bordercolor='rgba(255,255,255,0.1)'),
-                        xaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7')),
-                        yaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7'))
-                    )
+                    fig.add_trace(go.Scatter(x=df_bt.index, y=bench, name="基准（买入持有）", 
+                                           line=dict(color='gray', dash='dash')))
+                    fig.update_layout(title="策略收益曲线", height=400)
                     st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
                     
                     ret = (equity[-1] - bt_cap) / bt_cap * 100
@@ -1656,32 +1252,19 @@ def _show_factor_analysis_integrated(symbol, df_f):
             ic_analyzer = ICAnalyzer(factor_values, forward_returns)
             rolling_ic = ic_analyzer.calculate_rolling_ic(window=min(20, len(factor_values)//2))
             
-            # 绘制IC曲线 - Apple风格
+            # 绘制IC曲线
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=rolling_ic.index,
                 y=rolling_ic.values,
                 mode='lines',
                 name='Rolling IC',
-                line=dict(color='#2997ff', width=2.5)
+                line=dict(color='blue', width=2)
             ))
-            fig.add_hline(y=0.05, line_dash="dash", line_color="#34c759", 
-                         annotation_text="IC阈值(0.05)", annotation_position="right",
-                         annotation_font=dict(color='#34c759'))
-            fig.add_hline(y=-0.05, line_dash="dash", line_color="#ff3b30", 
-                         annotation_text="IC阈值(-0.05)", annotation_position="right",
-                         annotation_font=dict(color='#ff3b30'))
-            fig.add_hline(y=0, line_dash="dot", line_color="#86868b", opacity=0.5)
-            fig.update_layout(
-                title="IC曲线分析 - K线学习因子有效性",
-                height=400,
-                plot_bgcolor='#000000',
-                paper_bgcolor='#000000',
-                font=dict(color='#f5f5f7', size=12, family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
-                hovermode='x unified',
-                xaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7')),
-                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7'))
-            )
+            fig.add_hline(y=0.05, line_dash="dash", line_color="green", 
+                         annotation_text="IC阈值(0.05)")
+            fig.add_hline(y=-0.05, line_dash="dash", line_color="red")
+            fig.update_layout(title="IC曲线分析", height=300)
             st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
             
             # 显示IC统计
@@ -1705,24 +1288,13 @@ def _show_factor_analysis_integrated(symbol, df_f):
             regimes = regime_detector.detect_regime()
             regime_counts = regimes.value_counts()
             
-            colors_map = {'Bull': '#34c759', 'Bear': '#ff3b30', 'Oscillating': '#ffcc00'}
+            colors_map = {'Bull': 'green', 'Bear': 'red', 'Oscillating': 'yellow'}
             fig_regime = go.Figure(data=[go.Bar(
                 x=regime_counts.index,
                 y=regime_counts.values,
-                marker_color=[colors_map.get(r, '#86868b') for r in regime_counts.index],
-                text=regime_counts.values,
-                textposition='outside',
-                textfont=dict(color='#f5f5f7', size=12)
+                marker_color=[colors_map.get(r, 'gray') for r in regime_counts.index]
             )])
-            fig_regime.update_layout(
-                title="市场Regime分布",
-                height=350,
-                plot_bgcolor='#000000',
-                paper_bgcolor='#000000',
-                font=dict(color='#f5f5f7', size=12, family='-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
-                xaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7')),
-                yaxis=dict(gridcolor='rgba(255,255,255,0.1)', linecolor='rgba(255,255,255,0.2)', title_font=dict(color='#f5f5f7'))
-            )
+            fig_regime.update_layout(title="市场Regime分布", height=300)
             st.plotly_chart(fig_regime, config={"displayModeBar": False}, use_container_width=True)
             
             # 因子衰减分析
