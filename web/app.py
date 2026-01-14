@@ -345,10 +345,14 @@ if mode == "🔍 实盘深度研判":
                 "news": news_text, "rep": report
             }
             
-            # 保存混合胜率（如果计算了）
-            if 'hybrid_win_rate' in locals() and not np.isnan(hybrid_win_rate):
+            # 保存混合胜率信息（如果计算了）
+            if hybrid_win_rate_result:
                 res_dict["hybrid_win_rate"] = hybrid_win_rate
                 res_dict["traditional_win_rate"] = traditional_win_rate
+                res_dict["tb_win_rate"] = hybrid_win_rate_result.get('tb_win_rate', 0)
+                res_dict["win_rate_type"] = "混合胜率"
+            else:
+                res_dict["win_rate_type"] = "传统胜率"
             
             st.session_state.res = res_dict
 
