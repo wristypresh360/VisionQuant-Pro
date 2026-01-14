@@ -52,201 +52,233 @@ def _code_version_key() -> str:
     return "|".join(parts)
 
 # ================= 页面配置 =================
-st.set_page_config(page_title="VisionQuant Pro", layout="wide", page_icon="🦄", initial_sidebar_state="expanded")
+st.set_page_config(page_title="VisionQuant Pro", layout="wide", page_icon="📊", initial_sidebar_state="expanded")
 
-# ================= Apple/Google AI Studio 风格 UI =================
+# ================= 专业工业软件风格 UI (Bloomberg Terminal / Wind 风格) =================
 st.markdown("""
     <style>
-    /* Apple/Google AI Studio 风格 - 简洁现代 */
+    /* 专业金融终端风格 - 深色主题，数据密集，专业图表 */
     
-    /* 全局样式 */
+    /* 全局样式 - 深色专业主题 */
     .main {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+        background: #0d1117;
+        color: #c9d1d9;
+        font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Consolas', monospace;
     }
     
-    /* 侧边栏样式 - Apple风格 */
+    /* 侧边栏样式 - 深色专业 */
     [data-testid="stSidebar"] {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(0, 0, 0, 0.08);
-        box-shadow: 2px 0 20px rgba(0, 0, 0, 0.05);
+        background: #161b22;
+        border-right: 1px solid #30363d;
     }
     
-    /* 主内容区 - Google AI Studio风格 */
+    [data-testid="stSidebar"] * {
+        color: #c9d1d9;
+    }
+    
+    /* 主内容区 */
     .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1400px;
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        max-width: 100%;
     }
     
-    /* 卡片样式 - Apple风格 */
-    .metric-card {
-        background: rgba(255, 255, 255, 0.9);
-        backdrop-filter: blur(10px);
-        border-radius: 16px;
-        padding: 24px;
-        margin: 12px 0;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
-    }
-    
-    /* Metric组件 - Google AI Studio风格 */
+    /* Metric组件 - 专业数据展示 */
     [data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid rgba(0, 0, 0, 0.08);
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-        transition: all 0.2s ease;
+        background: #161b22;
+        border: 1px solid #30363d;
+        padding: 12px 16px;
+        border-radius: 4px;
     }
     
-    [data-testid="stMetric"]:hover {
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    [data-testid="stMetric"] > div {
+        color: #c9d1d9;
     }
     
-    /* 按钮样式 - Apple风格 */
-    .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 12px;
-        padding: 12px 24px;
+    [data-testid="stMetric"] > div > label {
+        color: #8b949e;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    [data-testid="stMetric"] > div > div {
+        color: #58a6ff;
+        font-size: 20px;
         font-weight: 600;
-        font-size: 14px;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+    }
+    
+    /* 按钮样式 - 专业简洁 */
+    .stButton > button {
+        background: #238636;
+        color: #ffffff;
+        border: 1px solid #2ea043;
+        border-radius: 4px;
+        padding: 8px 16px;
+        font-weight: 500;
+        font-size: 13px;
+        transition: background 0.15s ease;
     }
     
     .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        background: #2ea043;
+        border-color: #3fb950;
     }
     
-    /* 输入框样式 - Google AI Studio风格 */
+    /* 输入框样式 - 专业简洁 */
     .stTextInput > div > div > input {
-        border-radius: 12px;
-        border: 2px solid rgba(0, 0, 0, 0.1);
-        padding: 12px 16px;
-        font-size: 15px;
-        transition: all 0.2s ease;
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 4px;
+        padding: 8px 12px;
+        color: #c9d1d9;
+        font-size: 13px;
     }
     
     .stTextInput > div > div > input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        border-color: #58a6ff;
+        outline: none;
     }
     
-    /* 标题样式 - Apple风格 */
+    /* 标题样式 - 专业简洁 */
     h1 {
-        font-size: 42px;
-        font-weight: 700;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 8px;
+        font-size: 24px;
+        font-weight: 600;
+        color: #f0f6fc;
+        margin-bottom: 16px;
+        border-bottom: 1px solid #30363d;
+        padding-bottom: 8px;
     }
     
     h2 {
-        font-size: 28px;
+        font-size: 18px;
         font-weight: 600;
-        color: #1d1d1f;
-        margin-top: 32px;
-        margin-bottom: 16px;
-    }
-    
-    h3 {
-        font-size: 20px;
-        font-weight: 600;
-        color: #1d1d1f;
+        color: #f0f6fc;
         margin-top: 24px;
         margin-bottom: 12px;
     }
     
-    /* 核心决策框样式 - Google AI Studio风格 */
+    h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #c9d1d9;
+        margin-top: 16px;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    /* 核心决策框样式 - 专业信息框 */
     .agent-box {
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-        border-left: 4px solid #667eea;
-        padding: 24px;
-        border-radius: 16px;
-        margin: 24px 0;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        background: #161b22;
+        border-left: 3px solid #58a6ff;
+        padding: 16px;
+        border-radius: 4px;
+        margin: 16px 0;
+        border: 1px solid #30363d;
     }
     
-    /* 聊天气泡 - Apple Messages风格 */
+    /* 聊天气泡 - 专业简洁 */
     [data-testid="stChatMessage"] {
-        background: rgba(255, 255, 255, 0.95);
-        border-radius: 18px;
-        padding: 16px 20px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-        border: 1px solid rgba(0, 0, 0, 0.06);
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 4px;
+        padding: 12px 16px;
+        margin-bottom: 8px;
     }
     
-    /* 分割线 - 更优雅 */
+    /* 分割线 */
     hr {
         border: none;
         height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.1), transparent);
-        margin: 32px 0;
+        background: #30363d;
+        margin: 16px 0;
     }
     
     /* 侧边栏标题 */
     [data-testid="stSidebar"] h1 {
-        font-size: 32px;
-        font-weight: 700;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 16px;
+        font-size: 18px;
+        font-weight: 600;
+        color: #f0f6fc;
+        margin-bottom: 12px;
     }
     
-    /* 卡片容器 */
+    /* 卡片容器 - 专业数据面板 */
     .card-container {
-        background: rgba(255, 255, 255, 0.95);
-        backdrop-filter: blur(10px);
-        border-radius: 16px;
-        padding: 24px;
-        margin: 16px 0;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-        border: 1px solid rgba(0, 0, 0, 0.06);
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 4px;
+        padding: 16px;
+        margin: 12px 0;
     }
     
     /* 图表容器 */
     .plotly-container {
-        background: rgba(255, 255, 255, 0.95);
-        border-radius: 16px;
-        padding: 16px;
-        margin: 16px 0;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 4px;
+        padding: 12px;
+        margin: 12px 0;
     }
     
-    /* 滚动条样式 - 更现代 */
+    /* 表格样式 */
+    .dataframe {
+        background: #161b22;
+        color: #c9d1d9;
+    }
+    
+    /* 滚动条样式 - 专业深色 */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
     
     ::-webkit-scrollbar-track {
-        background: rgba(0, 0, 0, 0.05);
-        border-radius: 4px;
+        background: #0d1117;
     }
     
     ::-webkit-scrollbar-thumb {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #30363d;
         border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: linear-gradient(135deg, #5568d3 0%, #653a8f 100%);
+        background: #484f58;
+    }
+    
+    /* 文本颜色 */
+    p, span, div {
+        color: #c9d1d9;
+    }
+    
+    /* 标签颜色 */
+    label {
+        color: #8b949e;
+    }
+    
+    /* 成功/警告/错误颜色 */
+    .stSuccess {
+        background: #1a472a;
+        border-color: #238636;
+        color: #3fb950;
+    }
+    
+    .stWarning {
+        background: #5c4d1a;
+        border-color: #d29922;
+        color: #f1e05a;
+    }
+    
+    .stError {
+        background: #5a1a1a;
+        border-color: #da3633;
+        color: #f85149;
+    }
+    
+    .stInfo {
+        background: #1c2128;
+        border-color: #30363d;
+        color: #58a6ff;
     }
     </style>
 """, unsafe_allow_html=True)
