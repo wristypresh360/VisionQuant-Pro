@@ -244,7 +244,7 @@ def _run_stress_test(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT
         # 压力测试也用宽松T+1
         ret, bench_ret, _ = _backtest_loop(
             scenario_df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map,
-            AdvancedTransactionCost(), strict_t1=False # 压力测试可以稍微严格点，但这里保持一致
+            _get_simplified_cost_calc(), strict_t1=False 
         )
         stress_results[scenario_name] = ret
         
@@ -483,3 +483,85 @@ def _compute_baseline_returns(df):
         }
     except:
         return pd.DataFrame(), {}
+
+def run_stratified_backtest_batch(symbols, eng, bt_ma=60, bt_stop=8, bt_vision=57):
+    """
+    分层回测：行业/市值/风格 + 显著性检验
+    """
+    import pandas as pd
+    import numpy as np
+    from scipy import stats
+    from src.backtest.stock_stratifier import StockStratifier
+    from src.strategies.transaction_cost import AdvancedTransactionCost
+
+    rows = []
+    loader = eng["loader"]
+    for sym in symbols:
+        try:
+            data = eng["fund"].get_stock_fundamentals(sym)
+            ind, _ = eng["fund"].get_industry_peers(sym)
+            df = loader.get_stock_data(sym)
+            if df is None or df.empty or len(df) < 80:
+                continue
+            df.index = pd.to_datetime(df.index)
+            df = _calc_indicators(df, bt_ma)
+            if df.empty:
+                continue
+            # 风格：动量 or 均值回归
+            mom60 = (df["Close"].iloc[-1] / df["Close"].iloc[-60] - 1) if len(df) > 60 else 0.0
+            style = "momentum" if mom60 > 0 else "mean_reversion"
+            rows.append({
+                "symbol": sym,
+                "market_cap": data.get("total_mv", 0),
+                "industry": ind or "未知",
+                "style": style
+            })
+        except Exception:
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    strat_df = pd.DataFrame(rows)
+    stratifier = StockStratifier()
+    strat_df = stratifier.stratify_combined(strat_df, market_cap_col="market_cap", industry_col="industry")
+    strat_df["stratum"] = strat_df["stratum"].astype(str) + "_" + strat_df["style"].astype(str)
+
+    results = []
+    # 分层回测也使用简化成本，确保一致性
+    cost_calc = _get_simplified_cost_calc()
+    vision_map = {}
+    for stratum in strat_df["stratum"].unique():
+        sub = strat_df[strat_df["stratum"] == stratum]
+        rets = []
+        alphas = []
+        for _, row in sub.iterrows():
+            sym = row["symbol"]
+            try:
+                df = loader.get_stock_data(sym)
+                if df is None or df.empty or len(df) < 80:
+                    continue
+                df.index = pd.to_datetime(df.index)
+                df = _calc_indicators(df, bt_ma)
+                if df.empty:
+                    continue
+                # 用视觉阈值生成交易逻辑
+                ret, bench_ret, _ = _backtest_loop(
+                    df, sym, 100000, bt_ma, bt_stop, bt_vision, vision_map, cost_calc, strict_t1=False
+                )
+                rets.append(ret)
+                alphas.append(ret - bench_ret)
+            except Exception:
+                continue
+        if len(rets) == 0:
+            continue
+        # 统计显著性：alpha 是否显著 > 0
+        t_stat, p_val = stats.ttest_1samp(alphas, 0) if len(alphas) >= 3 else (0.0, 1.0)
+        results.append({
+            "分层": stratum,
+            "样本数": len(rets),
+            "平均收益": round(float(np.mean(rets)), 2),
+            "平均Alpha": round(float(np.mean(alphas)), 2),
+            "p值": round(float(p_val), 4)
+        })
+    return pd.DataFrame(results)
