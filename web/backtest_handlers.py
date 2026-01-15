@@ -12,6 +12,8 @@ from src.utils.walk_forward import WalkForwardValidator
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+_VISION_DF = None
+_VISION_CACHE = {}
 
 def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision, 
                  bt_validation, wf_train_months, wf_test_months, eng, PROJECT_ROOT,
@@ -99,6 +101,7 @@ def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
     
     # 使用简化成本模型
     cost_calc = _get_simplified_cost_calc()
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     vision_map = _load_vision_map(symbol, PROJECT_ROOT)
     
     all_results = []
@@ -419,10 +422,26 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
 
 def _load_vision_map(symbol, project_root):
     """加载视觉预测结果缓存"""
-    # 模拟：实际应从 BatchAnalyzer 或 VisionEngine 缓存读取
-    # 这里简单起见，返回空字典，回测将依赖 MA 趋势
-    # 在完整系统中，这里应读取 data/predictions/{symbol}.json
-    return {}
+    global _VISION_DF
+    symbol = str(symbol).strip().zfill(6)
+    if symbol in _VISION_CACHE:
+        return _VISION_CACHE[symbol]
+    pred_path = os.path.join(project_root, "data", "indices", "prediction_cache.csv")
+    if not os.path.exists(pred_path):
+        _VISION_CACHE[symbol] = {}
+        return {}
+    try:
+        if _VISION_DF is None:
+            _VISION_DF = pd.read_csv(pred_path, usecols=["symbol", "date", "pred_win_rate"])
+            _VISION_DF["symbol"] = _VISION_DF["symbol"].astype(str).str.zfill(6)
+            _VISION_DF["date"] = _VISION_DF["date"].astype(str).str.replace("-", "")
+        sub = _VISION_DF[_VISION_DF["symbol"] == symbol]
+        mapping = dict(zip(sub["date"], sub["pred_win_rate"].fillna(50.0)))
+        _VISION_CACHE[symbol] = mapping
+        return mapping
+    except Exception:
+        _VISION_CACHE[symbol] = {}
+        return {}
 
 def _calc_indicators(df, ma_period):
     """计算回测所需指标"""
@@ -483,3 +502,81 @@ def _compute_baseline_returns(df):
         }
     except:
         return pd.DataFrame(), {}
+
+def run_stratified_backtest_batch(symbols, eng, bt_ma=60, bt_stop=8, bt_vision=57):
+    """
+    分层回测：行业/市值/风格 + 显著性检验
+    """
+    import pandas as pd
+    import numpy as np
+    from scipy import stats
+    from src.backtest.stock_stratifier import StockStratifier
+
+    rows = []
+    loader = eng["loader"]
+    for sym in symbols:
+        try:
+            data = eng["fund"].get_stock_fundamentals(sym)
+            ind, _ = eng["fund"].get_industry_peers(sym)
+            df = loader.get_stock_data(sym)
+            if df is None or df.empty or len(df) < 80:
+                continue
+            df.index = pd.to_datetime(df.index)
+            # 风格：动量 or 均值回归
+            mom60 = (df["Close"].iloc[-1] / df["Close"].iloc[-60] - 1) if len(df) > 60 else 0.0
+            style = "momentum" if mom60 > 0 else "mean_reversion"
+            rows.append({
+                "symbol": sym,
+                "market_cap": data.get("total_mv", 0),
+                "industry": ind or "未知",
+                "style": style
+            })
+        except Exception:
+            continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    strat_df = pd.DataFrame(rows)
+    stratifier = StockStratifier()
+    strat_df = stratifier.stratify_combined(strat_df, market_cap_col="market_cap", industry_col="industry")
+    strat_df["stratum"] = strat_df["stratum"].astype(str) + "_" + strat_df["style"].astype(str)
+
+    results = []
+    cost_calc = _get_simplified_cost_calc()
+    for stratum in strat_df["stratum"].unique():
+        sub = strat_df[strat_df["stratum"] == stratum]
+        rets = []
+        alphas = []
+        for _, row in sub.iterrows():
+            sym = row["symbol"]
+            try:
+                df = loader.get_stock_data(sym)
+                if df is None or df.empty or len(df) < 80:
+                    continue
+                df.index = pd.to_datetime(df.index)
+                df = _calc_indicators(df, bt_ma)
+                if df.empty:
+                    continue
+                df = df.dropna(subset=["MA"])
+                if df.empty:
+                    continue
+                vision_map = _load_vision_map(sym, project_root)
+                ret, bench_ret, _ = _backtest_loop(
+                    df, sym, 100000, bt_ma, bt_stop, bt_vision, vision_map, cost_calc, strict_t1=False
+                )
+                rets.append(ret)
+                alphas.append(ret - bench_ret)
+            except Exception:
+                continue
+        if len(rets) == 0:
+            continue
+        t_stat, p_val = stats.ttest_1samp(alphas, 0) if len(alphas) >= 3 else (0.0, 1.0)
+        results.append({
+            "分层": stratum,
+            "样本数": len(rets),
+            "平均收益": round(float(np.mean(rets)), 2),
+            "平均Alpha": round(float(np.mean(alphas)), 2),
+            "p值": round(float(p_val), 4)
+        })
+    return pd.DataFrame(results)
