@@ -32,81 +32,91 @@ class PortfolioOptimizer:
             }
         }
         """
-        # 1. 分层筛选
-        core_stocks = {
-            k: v for k, v in analysis_results.items()
-            if v.get('action') == 'BUY' and v.get('score', 0) >= 7
-        }
-        
-        enhanced_stocks = {
-            k: v for k, v in analysis_results.items()
-            if v.get('score', 0) >= 6 and v.get('action') != 'SELL' 
-            and k not in core_stocks
-        }
-        
-        core_count = len(core_stocks)
-        
-        # 2. 根据核心股票数量选择策略
-        if core_count >= 5:
-            # 策略A：全部投资核心推荐
-            weights = self._optimize_single_tier(
-                core_stocks, loader, min_weight, max_weight, 
-                max_positions, risk_aversion
-            )
-            return {
-                'core': weights,
-                'enhanced': {},
-                'tier_info': {
-                    'strategy': 'core_only',
-                    'core_count': len(weights),
-                    'enhanced_count': 0,
-                    'description': '核心推荐股票充足，全仓配置核心组合'
-                }
-            }
-        
-        elif core_count >= 2:
-            # 策略B：70%核心 + 30%增强
-            core_weights = self._optimize_single_tier(
-                core_stocks, loader, 0.10, 0.25, 
-                core_count, risk_aversion
-            )
-            enhanced_weights = self._optimize_single_tier(
-                enhanced_stocks, loader, 0.05, 0.15, 
-                min(5, len(enhanced_stocks)), risk_aversion
-            )
-            
-            # 混合权重
-            mixed_core = {k: v * 0.7 for k, v in core_weights.items()}
-            mixed_enhanced = {k: v * 0.3 for k, v in enhanced_weights.items()}
-            
-            return {
-                'core': mixed_core,
-                'enhanced': mixed_enhanced,
-                'tier_info': {
-                    'strategy': 'mixed',
-                    'core_count': len(mixed_core),
-                    'enhanced_count': len(mixed_enhanced),
-                    'description': '核心推荐较少，70%核心+30%增强配置'
-                }
-            }
-        
-        else:
-            # 策略C：只展示备选增强（带风险提示）
-            enhanced_weights = self._optimize_single_tier(
-                enhanced_stocks, loader, 0.05, 0.20, 
-                min(max_positions, len(enhanced_stocks)), risk_aversion
-            )
-            
+        # 1. 分层筛选（放宽规则：保证中小样本也能输出可用组合）
+        optimizer_name = "Black-Litterman"
+        ranked = sorted(
+            analysis_results.items(),
+            key=lambda x: x[1].get('score', 0),
+            reverse=True
+        )
+        if not ranked:
             return {
                 'core': {},
-                'enhanced': enhanced_weights,
+                'enhanced': {},
                 'tier_info': {
-                    'strategy': 'enhanced_only',
+                    'strategy': 'empty',
+                    'optimizer': optimizer_name,
                     'core_count': 0,
-                    'enhanced_count': len(enhanced_weights),
-                    'description': '暂无高确定性推荐，仅展示备选组合，建议谨慎配置'
+                    'enhanced_count': 0,
+                    'description': '无有效股票数据'
                 }
             }
+
+        n_total = len(ranked)
+        target_total = min(max_positions, max(3, int(np.ceil(n_total * 0.6)) + 1))
+        target_total = min(target_total, n_total)
+        target_core = min(max(2, int(np.ceil(target_total * 0.6))), target_total)
+
+        buy = [sym for sym, d in ranked if d.get('action') == 'BUY']
+        wait = [sym for sym, d in ranked if d.get('action') == 'WAIT']
+        sell = [sym for sym, d in ranked if d.get('action') == 'SELL']
+
+        core_syms = []
+        for sym in buy:
+            if len(core_syms) < target_core:
+                core_syms.append(sym)
+        for sym in wait:
+            if len(core_syms) < target_core:
+                core_syms.append(sym)
+        for sym in sell:
+            if len(core_syms) < target_core:
+                core_syms.append(sym)
+
+        core_set = set(core_syms)
+        remaining = [sym for sym, _ in ranked if sym not in core_set]
+        enhanced_syms = remaining[:max(0, target_total - len(core_syms))]
+
+        core_stocks = {s: analysis_results[s] for s in core_syms}
+        enhanced_stocks = {s: analysis_results[s] for s in enhanced_syms}
+
+        # 2. 权重优化（核心/增强同时存在时 70/30；否则单层 100%）
+        core_weights = self._optimize_single_tier(
+            core_stocks, loader, min_weight, max_weight,
+            max_positions, risk_aversion
+        ) if core_stocks else {}
+
+        enhanced_weights = self._optimize_single_tier(
+            enhanced_stocks, loader, 0.05, 0.20,
+            max_positions, risk_aversion
+        ) if enhanced_stocks else {}
+
+        if core_weights and enhanced_weights:
+            mixed_core = {k: v * 0.7 for k, v in core_weights.items()}
+            mixed_enhanced = {k: v * 0.3 for k, v in enhanced_weights.items()}
+            strategy = "mixed_relaxed"
+            desc = "规则放宽：核心优先 BUY，其次 WAIT；增强补齐剩余，确保组合可用"
+        elif core_weights:
+            mixed_core = core_weights
+            mixed_enhanced = {}
+            strategy = "core_only_relaxed"
+            desc = "规则放宽：用高分股票构建核心组合"
+        else:
+            mixed_core = {}
+            mixed_enhanced = enhanced_weights
+            strategy = "enhanced_only_relaxed"
+            desc = "规则放宽：以高分股票构建备选组合"
+
+        return {
+            'core': mixed_core,
+            'enhanced': mixed_enhanced,
+            'tier_info': {
+                'strategy': strategy,
+                'optimizer': optimizer_name,
+                'core_count': len(mixed_core),
+                'enhanced_count': len(mixed_enhanced),
+                'description': desc
+            }
+        }
     
     def _optimize_single_tier(self, stocks, loader, min_weight, max_weight, 
                              max_positions, risk_aversion):

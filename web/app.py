@@ -527,40 +527,136 @@ elif mode == "📊 批量组合分析":
         
         batch_results = batch_analyzer.analyze_batch(symbols, progress_callback=update_progress)
         st.session_state.batch_results = batch_results
-        
+        progress_bar.progress(1.0)
+        status_text.text("✅ 分析完成")
+        progress_bar.empty()
+        status_text.empty()
+
+        if not batch_results:
+            st.error("批量分析失败或无有效数据")
+            st.stop()
+
+        # 统一组合优化（即使没有 BUY 也能输出“增强组合”）
+        multi_tier_result = portfolio_optimizer.optimize_multi_tier_portfolio(
+            batch_results, eng["loader"], min_weight=0.05, max_weight=0.25, max_positions=10
+        )
+        st.session_state.multi_tier_result = multi_tier_result
+
         buy_stocks = {k: v for k, v in batch_results.items() if v.get('action') == 'BUY' and v.get('score', 0) >= 7}
         wait_stocks = {k: v for k, v in batch_results.items() if v.get('action') == 'WAIT'}
         sell_stocks = {k: v for k, v in batch_results.items() if v.get('action') == 'SELL'}
-        
-        if buy_stocks:
-            st.subheader("✅ 推荐买入列表")
-            multi_tier_result = portfolio_optimizer.optimize_multi_tier_portfolio(
-                buy_stocks, eng["loader"], min_weight=0.05, max_weight=0.25, max_positions=10
+
+        def _goto_symbol(sym: str):
+            if "res" in st.session_state:
+                del st.session_state.res
+            st.session_state.current_symbol = None
+            st.session_state.has_run = False
+            st.query_params.update({"symbol": sym, "mode": "detail"})
+            st.rerun()
+
+        tier_info = multi_tier_result.get("tier_info", {})
+        if tier_info:
+            st.info(
+                f"组合策略: {tier_info.get('strategy', '-')}"
+                f" | 优化器: {tier_info.get('optimizer', 'Black-Litterman')}"
+                f" | 说明: {tier_info.get('description', '-')}"
             )
-            st.session_state.multi_tier_result = multi_tier_result
-            
-            st.markdown("### 核心推荐组合")
-            core_weights = multi_tier_result.get('core', {})
-            if core_weights:
-                core_df = pd.DataFrame([
-                    {"股票代码": sym, "股票名称": batch_results[sym].get('name', sym), 
-                     "权重": f"{w*100:.1f}%", "评分": f"{batch_results[sym].get('score', 0):.1f}/10"}
-                    for sym, w in sorted(core_weights.items(), key=lambda x: x[1], reverse=True)
-                ])
-                st.dataframe(core_df, hide_index=True, use_container_width=True)
-                
-                total_weight = sum(core_weights.values())
-                st.info(f"核心组合总权重: {total_weight*100:.1f}%")
-            
-            st.markdown("### 备选增强组合")
-            enhanced_weights = multi_tier_result.get('enhanced', {})
-            if enhanced_weights:
-                enhanced_df = pd.DataFrame([
-                    {"股票代码": sym, "股票名称": batch_results[sym].get('name', sym), 
-                     "权重": f"{w*100:.1f}%", "评分": f"{batch_results[sym].get('score', 0):.1f}/10"}
-                    for sym, w in sorted(enhanced_weights.items(), key=lambda x: x[1], reverse=True)
-                ])
-                st.dataframe(enhanced_df, hide_index=True, use_container_width=True)
+
+        st.subheader("✅ 组合结果（核心 + 备选）")
+        core_weights = multi_tier_result.get('core', {})
+        enhanced_weights = multi_tier_result.get('enhanced', {})
+        combined_weights = {}
+        combined_weights.update(core_weights)
+        combined_weights.update(enhanced_weights)
+
+        def _render_weights_table(title, weights):
+            st.markdown(f"### {title}")
+            if not weights:
+                st.info("暂无可用组合")
+                return
+            rows = []
+            for sym, w in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+                data = batch_results.get(sym, {})
+                rows.append({
+                    "股票代码": sym,
+                    "股票名称": data.get("name", sym),
+                    "权重": f"{w*100:.1f}%",
+                    "评分": f"{data.get('score', 0):.1f}/10",
+                    "胜率": f"{data.get('win_rate', 0):.1f}%",
+                    "预期收益": f"{data.get('expected_return', 0):.2f}%"
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+            for sym, w in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+                data = batch_results.get(sym, {})
+                c1, c2, c3, c4 = st.columns([3, 1, 1, 4])
+                with c1:
+                    if st.button(f"📊 {data.get('name', sym)} ({sym})", key=f"link_{title}_{sym}", use_container_width=True):
+                        _goto_symbol(sym)
+                with c2:
+                    st.write(f"**{data.get('score', 0):.1f}/10**")
+                with c3:
+                    st.write(f"{w*100:.1f}%")
+                with c4:
+                    st.write(f"{data.get('action', 'WAIT')} - {data.get('reasoning', '')[:60]}")
+
+        _render_weights_table("核心推荐组合", core_weights)
+        _render_weights_table("备选增强组合", enhanced_weights)
+
+        st.subheader("📌 仓位设计与风控设置")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("最小仓位", "5%")
+        c2.metric("最大仓位", "25%")
+        c3.metric("最大持仓数", "10")
+        st.caption("止盈/止损参考：标签止盈 +5%、标签止损 -3%；回测止损默认 -8%（可在单股回测中调整）")
+
+        if combined_weights:
+            st.subheader("📊 组合权重图表")
+            labels = [f"{batch_results[s].get('name', s)}({s})" for s in combined_weights.keys()]
+            values = [combined_weights[s] for s in combined_weights.keys()]
+            pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.35)])
+            pie.update_layout(height=320, title="组合权重分布")
+            st.plotly_chart(pie, use_container_width=True)
+
+            bar = go.Figure()
+            bar.add_trace(go.Bar(x=labels, y=[batch_results[s].get('score', 0) for s in combined_weights.keys()],
+                                 name="评分", marker_color="#ff4b4b"))
+            bar.update_layout(height=300, title="评分对比")
+            st.plotly_chart(bar, use_container_width=True)
+
+            scatter = go.Figure()
+            for s in combined_weights.keys():
+                scatter.add_trace(go.Scatter(
+                    x=[batch_results[s].get('win_rate', 0)],
+                    y=[batch_results[s].get('expected_return', 0)],
+                    mode='markers+text',
+                    text=[s],
+                    marker=dict(size=max(8, combined_weights[s]*200), color="#1f77b4"),
+                    name=s
+                ))
+            scatter.update_layout(height=320, title="胜率 vs 预期收益", xaxis_title="胜率(%)", yaxis_title="预期收益(%)")
+            st.plotly_chart(scatter, use_container_width=True)
+
+            st.subheader("🕯️ 组合Top3 K线展示")
+            top_syms = [s for s, _ in sorted(combined_weights.items(), key=lambda x: x[1], reverse=True)[:3]]
+            if top_syms:
+                cols = st.columns(len(top_syms))
+                for i, sym in enumerate(top_syms):
+                    try:
+                        dfk = eng["loader"].get_stock_data(sym)
+                        if dfk is None or dfk.empty:
+                            continue
+                        tmp_img = os.path.join(PROJECT_ROOT, "data", f"temp_batch_k_{sym}.png")
+                        mc = mpf.make_marketcolors(up='red', down='green', inherit=True)
+                        sstyle = mpf.make_mpf_style(marketcolors=mc, gridstyle='')
+                        mpf.plot(dfk.tail(60), type='candle', style=sstyle,
+                                 savefig=dict(fname=tmp_img, dpi=80), figsize=(4, 3), axisoff=True)
+                        with cols[i]:
+                            st.image(tmp_img, caption=f"{sym}", use_container_width=True)
+                        if os.path.exists(tmp_img):
+                            os.remove(tmp_img)
+                    except Exception:
+                        continue
         
         if wait_stocks or sell_stocks:
             st.divider()
