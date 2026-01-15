@@ -18,23 +18,13 @@ class PortfolioOptimizer:
     def optimize_multi_tier_portfolio(self, analysis_results, loader, 
                                      min_weight=0.05, max_weight=0.25,
                                      max_positions=10, risk_aversion=1.0,
-                                     cvar_limit: float = 0.05, cvar_alpha: float = 0.05):
+                                     cvar_limit: float = 0.05, cvar_alpha: float = 0.05,
+                                     max_drawdown_limit: float = 0.15):
         """
         三层分级组合优化（新逻辑）
-        
-        返回结构：
-        {
-            'core': {symbol: weight},  # 核心推荐组合
-            'enhanced': {symbol: weight},  # 备选增强组合
-            'tier_info': {
-                'strategy': 'xxx',  # 策略类型
-                'core_count': N,
-                'enhanced_count': M
-            }
-        }
         """
         # 1. 分层筛选（放宽规则：保证中小样本也能输出可用组合）
-        optimizer_name = "Black-Litterman"
+        optimizer_name = "Black-Litterman (Robust)"
         ranked = sorted(
             analysis_results.items(),
             key=lambda x: x[1].get('score', 0),
@@ -83,12 +73,12 @@ class PortfolioOptimizer:
         # 2. 权重优化（核心/增强同时存在时 70/30；否则单层 100%）
         core_weights = self._optimize_single_tier(
             core_stocks, loader, min_weight, max_weight,
-            max_positions, risk_aversion, cvar_limit, cvar_alpha
+            max_positions, risk_aversion, cvar_limit, cvar_alpha, max_drawdown_limit
         ) if core_stocks else {}
 
         enhanced_weights = self._optimize_single_tier(
             enhanced_stocks, loader, 0.05, 0.20,
-            max_positions, risk_aversion, cvar_limit, cvar_alpha
+            max_positions, risk_aversion, cvar_limit, cvar_alpha, max_drawdown_limit
         ) if enhanced_stocks else {}
 
         if core_weights and enhanced_weights:
@@ -118,34 +108,33 @@ class PortfolioOptimizer:
                 'description': desc
             }
         }
-    
+
     def _optimize_single_tier(self, stocks, loader, min_weight, max_weight, 
-                             max_positions, risk_aversion, cvar_limit, cvar_alpha):
+                             max_positions, risk_aversion, cvar_limit, cvar_alpha, max_drawdown_limit=0.15):
         """优化单层组合"""
         if len(stocks) == 0:
             return {}
         
-        # 按评分排序，取Top N
+        # 按评分排序，取前N个
         sorted_stocks = sorted(
             stocks.items(),
             key=lambda x: x[1].get('score', 0),
             reverse=True
         )[:max_positions]
         
-        if len(sorted_stocks) == 0:
-            return {}
-        
         symbols = [s[0] for s in sorted_stocks]
+        n = len(symbols)
         
         # 计算期望收益和协方差矩阵
         expected_returns = self._calculate_expected_returns(sorted_stocks)
-        view_confidences = self._calculate_view_confidences(sorted_stocks)
+        view_confidences = self._calculate_view_confidences_advanced(sorted_stocks, loader) # 升级版置信度
         cov_matrix = self._calculate_covariance_matrix(symbols, loader)
         
-        if cov_matrix is None or len(cov_matrix) == 0:
+        if cov_matrix is None:
+            # 降级为简单加权
             return self._simple_weight_allocation(sorted_stocks, min_weight, max_weight)
         
-        # Black-Litterman 优化（Q10：不选C/D）
+        # Black-Litterman 优化
         try:
             bl_returns = self._black_litterman_expected_returns(
                 expected_returns, cov_matrix, view_confidences=view_confidences
@@ -153,7 +142,8 @@ class PortfolioOptimizer:
             weights = self._markowitz_optimize(
                 bl_returns, cov_matrix,
                 min_weight, max_weight, risk_aversion,
-                cvar_limit=cvar_limit, cvar_alpha=cvar_alpha
+                cvar_limit=cvar_limit, cvar_alpha=cvar_alpha,
+                max_drawdown_limit=max_drawdown_limit
             )
         except Exception:
             # 回退到 Markowitz
@@ -161,138 +151,33 @@ class PortfolioOptimizer:
                 weights = self._markowitz_optimize(
                     expected_returns, cov_matrix,
                     min_weight, max_weight, risk_aversion,
-                    cvar_limit=cvar_limit, cvar_alpha=cvar_alpha
+                    cvar_limit=cvar_limit, cvar_alpha=cvar_alpha,
+                    max_drawdown_limit=max_drawdown_limit
                 )
             except Exception:
                 return self._simple_weight_allocation(sorted_stocks, min_weight, max_weight)
         
-        # 构建结果字典
         result = {}
-        for i, (symbol, _) in enumerate(sorted_stocks):
-            if i < len(weights):
-                result[symbol] = round(weights[i], 4)
-        
+        for i, sym in enumerate(symbols):
+            if weights[i] > 0.001:  # 忽略极小权重
+                result[sym] = weights[i]
+                
         return result
-    
-    def optimize_weights(self, analysis_results, loader, 
-                        min_weight=0.05, max_weight=0.20,
-                        max_positions=10, risk_aversion=1.0):
-        """
-        基于马科维茨模型优化组合权重（保持兼容性）
-        
-        Args:
-            analysis_results: 批量分析结果 {symbol: {score, win_rate, ...}}
-            loader: DataLoader实例，用于获取历史数据计算协方差
-            min_weight: 最小仓位（5%）
-            max_weight: 最大仓位（20%）
-            max_positions: 最大持仓数量
-            risk_aversion: 风险厌恶系数（越大越保守）
-        
-        Returns:
-            Dict: {symbol: weight}
-        """
-        # 调用新的多层优化方法
-        multi_tier = self.optimize_multi_tier_portfolio(
-            analysis_results, loader, min_weight, max_weight,
-            max_positions, risk_aversion
-        )
-        
-        # 合并所有权重返回（兼容旧接口）
-        all_weights = {}
-        all_weights.update(multi_tier['core'])
-        all_weights.update(multi_tier['enhanced'])
-        
-        return all_weights
-    
-    def _calculate_expected_returns(self, sorted_stocks):
-        """计算期望收益向量"""
-        returns = []
-        for symbol, data in sorted_stocks:
-            # 基于视觉胜率和预期收益
-            win_rate = data.get('win_rate', 50) / 100
-            expected_ret = data.get('expected_return', 0) / 100
-            
-            # 简化：期望收益 = 胜率 * 预期收益
-            er = win_rate * expected_ret + (1 - win_rate) * (-expected_ret * 0.5)
-            returns.append(er)
-        
-        return np.array(returns)
-    
-    def _calculate_covariance_matrix(self, symbols, loader, lookback_days=60):
-        """计算协方差矩阵（基于历史收益率）"""
-        returns_data = []
-        valid_symbols = []
-        
-        for symbol in symbols:
-            try:
-                df = loader.get_stock_data(symbol)
-                if len(df) < lookback_days:
-                    continue
-                
-                # 计算日收益率
-                df = df.tail(lookback_days)
-                returns = df['Close'].pct_change().dropna()
-                
-                if len(returns) >= 30:  # 至少需要30天数据
-                    returns_data.append(returns.values)
-                    valid_symbols.append(symbol)
-            except:
-                continue
-        
-        if len(returns_data) < 2:
-            return None
-        
-        # 对齐长度（取最短的）
-        min_len = min(len(r) for r in returns_data)
-        returns_data = [r[-min_len:] for r in returns_data]
-        
-        # 计算协方差矩阵
-        returns_matrix = np.array(returns_data)
-        cov_matrix = np.cov(returns_matrix)
-        
-        # 如果矩阵不是正定的，添加小的正则项
-        if not self._is_positive_definite(cov_matrix):
-            cov_matrix += np.eye(len(cov_matrix)) * 1e-6
-        
-        # 更新symbols列表
-        symbols[:] = valid_symbols[:len(cov_matrix)]
-        
-        return cov_matrix
-    
-    def _is_positive_definite(self, matrix):
-        """检查矩阵是否正定"""
-        try:
-            np.linalg.cholesky(matrix)
-            return True
-        except:
-            return False
-    
+
     def _markowitz_optimize(self, expected_returns, cov_matrix, 
                            min_weight, max_weight, risk_aversion,
-                           cvar_limit: float = 0.05, cvar_alpha: float = 0.05):
-        """
-        马科维茨均值-方差优化
-        
-        目标函数：maximize (w^T * μ - λ * w^T * Σ * w)
-        其中：w是权重向量，μ是期望收益，Σ是协方差矩阵，λ是风险厌恶系数
-        """
+                           cvar_limit: float = 0.05, cvar_alpha: float = 0.05,
+                           max_drawdown_limit: float = 0.15):
+        """马科维茨优化求解（含高级风控约束）"""
         n = len(expected_returns)
         
-        # 目标函数：负的夏普比率（因为minimize）
+        # 目标函数：最大化效用 (E[R] - lambda * Risk)
         def objective(weights):
             portfolio_return = np.dot(weights, expected_returns)
-            portfolio_risk = np.sqrt(np.dot(weights, np.dot(cov_matrix, weights)))
-            
-            # 夏普比率（简化，假设无风险利率为0）
-            if portfolio_risk > 0:
-                sharpe = portfolio_return / portfolio_risk
-            else:
-                sharpe = 0
-            
-            # 风险惩罚项
-            risk_penalty = risk_aversion * portfolio_risk
-            
-            return -(sharpe - risk_penalty)
+            portfolio_risk = np.dot(weights, np.dot(cov_matrix, weights))
+            # MaxDD 惩罚项 (近似：Volatility * 2)
+            mdd_penalty = max(0, np.sqrt(portfolio_risk) * 2 - max_drawdown_limit) * 10.0
+            return -(portfolio_return - 0.5 * risk_aversion * portfolio_risk - mdd_penalty)
         
         # 约束条件
         constraints = [
@@ -301,45 +186,40 @@ class PortfolioOptimizer:
         ]
         
         # 边界条件
-        bounds = [(min_weight, max_weight) for _ in range(n)]
+        bounds = tuple((min_weight, max_weight) for _ in range(n))
         
-        # 初始猜测（等权重）
-        x0 = np.array([1.0 / n] * n)
+        # 初始猜测
+        init_guess = np.array([1.0/n] * n)
         
-        # 优化
-        result = minimize(
-            objective, x0, method='SLSQP',
-            bounds=bounds, constraints=constraints,
-            options={'maxiter': 1000}
-        )
+        result = minimize(objective, init_guess, method='SLSQP', 
+                         bounds=bounds, constraints=constraints)
         
-        if result.success:
-            weights = result.x
-            # 归一化（确保和为1）
-            weights = weights / np.sum(weights)
-            return weights
-        else:
-            # 优化失败，返回等权重
-            return np.array([1.0 / n] * n)
+        if not result.success:
+            raise RuntimeError("Optimization failed")
+            
+        return result.x
 
     def _black_litterman_expected_returns(self, expected_returns, cov_matrix,
                                           view_confidences=None,
                                           tau: float = 0.05, delta: float = 2.5):
         """
-        计算 Black-Litterman 融合后的期望收益
-        - 市场均衡收益 pi = delta * Sigma * w_mkt
-        - 观点 Q = expected_returns（来自视觉因子）
+        Black-Litterman 模型计算后验期望收益
+        
+        Args:
+            expected_returns: 投资者观点（AI预测收益）
+            cov_matrix: 协方差矩阵
+            view_confidences: 观点置信度 (0~1)
+            tau: 缩放系数
+            delta: 风险厌恶系数
         """
         n = len(expected_returns)
-        if n == 0:
-            return expected_returns
-
-        # 市场权重（等权）
-        w_mkt = np.array([1.0 / n] * n)
-
-        # 均衡收益
-        pi = delta * cov_matrix.dot(w_mkt)
-
+        
+        # 隐含均衡收益 (Implied Equilibrium Returns)
+        # 简化：假设市场均衡收益等于无风险利率 + 风险溢价
+        # Pi = delta * Sigma * w_mkt
+        # 这里简化为所有股票均值为 0.05
+        pi = np.full(n, 0.05 / 252) 
+        
         # 观点矩阵
         P = np.eye(n)
         Q = expected_returns.reshape(-1, 1)
@@ -348,31 +228,128 @@ class PortfolioOptimizer:
         base_omega = np.diag(np.diag(P.dot(tau * cov_matrix).dot(P.T)))
         if view_confidences is None:
             view_confidences = np.ones(n)
-        view_confidences = np.clip(np.array(view_confidences), 0.2, 1.0)
-        omega = base_omega / view_confidences.reshape(-1, 1)
-
+        
+        # 确保置信度在合理范围
+        view_confidences = np.clip(np.array(view_confidences), 0.1, 0.99)
+        # Omega = P * Sigma * P' * ( (1/conf) - 1 )
+        uncertainty_multiplier = (1.0 / view_confidences) - 1.0
+        omega = base_omega * uncertainty_multiplier.reshape(-1, 1)
+        
         # BL 公式
-        inv_tau_sigma = np.linalg.inv(tau * cov_matrix)
-        inv_omega = np.linalg.inv(omega)
-        middle = np.linalg.inv(inv_tau_sigma + P.T.dot(inv_omega).dot(P))
-        mu_bl = middle.dot(inv_tau_sigma.dot(pi.reshape(-1, 1)) + P.T.dot(inv_omega).dot(Q))
-
+        # E[R] = [(tau*Sigma)^-1 + P' Omega^-1 P]^-1 * [(tau*Sigma)^-1 Pi + P' Omega^-1 Q]
+        tau_cov_inv = np.linalg.inv(tau * cov_matrix)
+        omega_inv = np.linalg.inv(omega)
+        
+        M_inverse = np.linalg.inv(tau_cov_inv + P.T.dot(omega_inv).dot(P))
+        term1 = tau_cov_inv.dot(pi.reshape(-1, 1))
+        term2 = P.T.dot(omega_inv).dot(Q)
+        
+        mu_bl = M_inverse.dot(term1 + term2)
         return mu_bl.flatten()
 
-    def _calculate_view_confidences(self, sorted_stocks):
-        """根据因子置信度生成观点权重（0.2-1.0）"""
-        confs = []
+    def _calculate_expected_returns(self, sorted_stocks):
+        """从分析结果提取期望收益"""
+        returns = []
         for _, data in sorted_stocks:
-            try:
-                raw_conf = float(data.get("confidence", 0))
-            except Exception:
-                raw_conf = 0.0
+            # 优先使用已有的预期收益字段
+            er = data.get('expected_return', 0)
+            # 转换为日收益率 (假设输入是年化或总收益)
+            # 这里假设 data['expected_return'] 是百分比，如 15.5
+            daily_er = (er / 100) / 20  # 假设是20日预期收益
+            returns.append(daily_er)
+        return np.array(returns)
+
+    def _calculate_view_confidences(self, sorted_stocks):
+        """(Deprecated) 简单置信度"""
+        return self._calculate_view_confidences_advanced(sorted_stocks, None)
+
+    def _calculate_view_confidences_advanced(self, sorted_stocks, loader):
+        """
+        基于分布特征计算观点置信度 (13D)
+        
+        Confidence = f(Score, WinRate, DistributionStd)
+        分布越紧密（方差小），置信度越高。
+        """
+        confs = []
+        for sym, data in sorted_stocks:
+            base_conf = 0.5
+            
+            # 1. 基础分
             score = float(data.get("score", 0)) / 10.0
-            win = float(data.get("win_rate", 50)) / 100.0
-            conf = raw_conf / 100.0 if raw_conf > 0 else 0.5 * score + 0.5 * win
-            conf = min(max(conf, 0.2), 1.0)
-            confs.append(conf)
+            win_rate = float(data.get("win_rate", 50)) / 100.0
+            
+            # 2. 分布特征 (如果存在)
+            dist_std = 0.05 # 默认假设5%波动
+            matches = data.get("matches", [])
+            if matches and loader:
+                # 尝试计算 Top10 收益的标准差
+                try:
+                    # 这里简化：假设 matches 里已有收益率或者重新获取太慢
+                    # 如果 data 里有 cvar 或 volatility 字段最好
+                    # 也可以用 "similarity" 的一致性来代表置信度
+                    scores = [m.get('score', 0) for m in matches]
+                    if scores:
+                        score_std = np.std(scores)
+                        # 相似度方差越小，置信度越高
+                        dist_modifier = max(0, 0.1 - score_std) * 2 
+                        base_conf += dist_modifier
+                except:
+                    pass
+            
+            # 3. 综合计算
+            # 胜率越高 -> 置信度高
+            # 评分越高 -> 置信度高
+            conf = 0.4 * score + 0.4 * win_rate + 0.2 * base_conf
+            confs.append(min(max(conf, 0.1), 0.95))
+            
         return confs
+
+    def _calculate_covariance_matrix(self, symbols, loader):
+        """计算协方差矩阵"""
+        prices = pd.DataFrame()
+        
+        for sym in symbols:
+            df = loader.get_stock_data(sym)
+            if not df.empty:
+                prices[sym] = df['Close']
+        
+        if prices.empty:
+            return None
+            
+        # 计算日收益率
+        returns = prices.pct_change().dropna()
+        
+        if len(returns) < 30:  # 样本太少
+            return None
+            
+        # 计算协方差矩阵
+        cov_matrix = returns.cov().values
+        return cov_matrix
+
+    def _simple_weight_allocation(self, sorted_stocks, min_weight, max_weight):
+        """简单权重分配（按分数比例）"""
+        total_score = sum([x[1].get('score', 0) for x in sorted_stocks])
+        weights = {}
+        
+        if total_score == 0:
+            count = len(sorted_stocks)
+            for sym, _ in sorted_stocks:
+                weights[sym] = 1.0 / count
+        else:
+            for sym, data in sorted_stocks:
+                score = data.get('score', 0)
+                raw_weight = score / total_score
+                # 简单截断
+                w = max(min_weight, min(raw_weight, max_weight))
+                weights[sym] = w
+        
+        # 归一化
+        total_w = sum(weights.values())
+        if total_w > 0:
+            for k in weights:
+                weights[k] /= total_w
+                
+        return weights
 
     def _portfolio_cvar(self, weights, expected_returns, cov_matrix, alpha: float = 0.05):
         """正态近似CVaR（损失为正）"""
@@ -402,57 +379,37 @@ class PortfolioOptimizer:
         if total > 0:
             adj = {k: max(v, 0) / total for k, v in adj.items()}
         return adj, {"turnover": max_turnover}
-    
-    def _simple_weight_allocation(self, sorted_stocks, min_weight, max_weight):
-        """简化权重分配（按评分比例）"""
-        scores = [s[1].get('score', 0) for s in sorted_stocks]
-        total_score = sum(scores)
-        
-        if total_score == 0:
-            # 等权重
-            n = len(sorted_stocks)
-            return {s[0]: round(1.0/n, 4) for s in sorted_stocks}
-        
-        weights = {}
-        for symbol, data in sorted_stocks:
-            base_weight = data.get('score', 0) / total_score
-            # 限制在[min_weight, max_weight]范围内
-            weight = max(min_weight, min(max_weight, base_weight))
-            weights[symbol] = round(weight, 4)
-        
-        # 归一化
-        total = sum(weights.values())
-        if total > 0:
-            weights = {k: round(v/total, 4) for k, v in weights.items()}
-        
-        return weights
-    
+
     def calculate_portfolio_metrics(self, weights, analysis_results, loader):
         """计算组合指标"""
         if not weights:
             return {}
-        
+            
         symbols = list(weights.keys())
-        expected_returns = []
         
-        for symbol in symbols:
-            data = analysis_results.get(symbol, {})
-            er = data.get('expected_return', 0) / 100
-            expected_returns.append(er)
+        # 期望收益 (日)
+        expected_returns = []
+        for s in symbols:
+            data = analysis_results.get(s, {})
+            er = data.get('expected_return', 0)
+            daily_er = (er / 100) / 20 
+            expected_returns.append(daily_er)
+            
+        cov_matrix = self._calculate_covariance_matrix(symbols, loader)
+        
+        if cov_matrix is None:
+            return {
+                "expected_return": 0,
+                "risk": 0,
+                "sharpe_ratio": 0
+            }
+            
+        # 组合风险 (日波动率)
+        w_vec = np.array([weights[s] for s in symbols])
+        portfolio_risk = np.sqrt(np.dot(w_vec, np.dot(cov_matrix, w_vec)))
         
         # 组合期望收益
         portfolio_return = sum(weights[s] * er for s, er in zip(symbols, expected_returns))
-        
-        # 计算组合风险（简化）
-        try:
-            cov_matrix = self._calculate_covariance_matrix(symbols, loader)
-            if cov_matrix is not None:
-                w_vec = np.array([weights[s] for s in symbols])
-                portfolio_risk = np.sqrt(np.dot(w_vec, np.dot(cov_matrix, w_vec)))
-            else:
-                portfolio_risk = 0.02  # 默认2%
-        except:
-            portfolio_risk = 0.02
         
         # 夏普比率
         if portfolio_risk > 0:
@@ -461,22 +418,19 @@ class PortfolioOptimizer:
             sharpe_ratio = 0
 
         # CVaR（正态近似）
-        cov_matrix = self._calculate_covariance_matrix(symbols, loader)
         cvar = None
         if cov_matrix is not None:
-            w_vec = np.array([weights[s] for s in symbols])
             cvar = self._portfolio_cvar(w_vec, np.array(expected_returns), cov_matrix)
 
         # 风险贡献（Budget）
         risk_budget = {}
         if cov_matrix is not None:
-            w_vec = np.array([weights[s] for s in symbols])
             port_vol = np.sqrt(np.dot(w_vec, np.dot(cov_matrix, w_vec)))
             if port_vol > 0:
                 mrc = np.dot(cov_matrix, w_vec) / port_vol
                 for i, s in enumerate(symbols):
                     risk_budget[s] = round(float(w_vec[i] * mrc[i]), 6)
-        
+
         return {
             "expected_return": round(portfolio_return * 100, 2),
             "risk": round(portfolio_risk * 100, 2),
