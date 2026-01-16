@@ -227,13 +227,17 @@ class FundamentalMiner:
             if peers_df.empty and ind_col and industry not in ["未知", "上海主板", "深圳主板", "创业板", "科创板"]:
                 peers_df = full_market[full_market[ind_col] == industry].copy()
             
-            # 兜底2：如果还是没找到，才使用板块前缀（这会导致紫金矿业匹配到银行，作为最后防线）
-            if peers_df.empty:
-                # 使用板块前缀兜底
-                peers_df = full_market[full_market[code_col].astype(str).str.startswith(symbol[:2])].copy()
+            # 移除粗暴的板块前缀兜底，避免将紫金矿业（有色）匹配为市值最高的银行股
+            # if peers_df.empty:
+            #    peers_df = full_market[full_market[code_col].astype(str).str.startswith(symbol[:2])].copy()
 
             if peers_df.empty:
-                return industry, pd.DataFrame()
+                # 如果找不到同行，尝试用全部A股的同名行业（如果spot里有行业列但没匹配上）
+                if ind_col and industry:
+                     peers_df = full_market[full_market[ind_col].str.contains(industry, na=False)].copy()
+                
+                if peers_df.empty:
+                    return industry, pd.DataFrame()
 
             if mkt_cap_col:
                 peers_df = peers_df.sort_values(by=mkt_cap_col, ascending=False).head(6).copy()
