@@ -1,4 +1,3 @@
-VisionQuant-Pro: K线视觉学习因子智能投研系统
 
 <div align="center">
 
