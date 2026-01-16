@@ -170,7 +170,7 @@ class DataLoader:
                         # 保存到本地缓存
                         if use_cache:
                             df_new.to_csv(file_path)
-                        return df_new
+                        return self._normalize_columns(df_new)
                 else:
                     print(f"⚠️ [{self.data_source_name}] 获取数据失败，尝试回退...")
             
@@ -188,16 +188,44 @@ class DataLoader:
                     if df_new is not None and not df_new.empty:
                         if use_cache:
                             df_new.to_csv(file_path)
-                        return df_new
+                        return self._normalize_columns(df_new)
             
             # 如果所有数据源都失败，返回旧数据（如果有）
             if not df.empty:
                 print(f"⚠️ 所有数据源获取失败，使用本地旧数据")
-                return df
+                return self._normalize_columns(df)
             
             return pd.DataFrame()
 
-        return df
+        return self._normalize_columns(df)
+
+    def _normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        统一常见列名，保证下游量价特征可稳定获取
+        """
+        if df is None or df.empty:
+            return df
+        data = df.copy()
+        col_map = {}
+        for c in data.columns:
+            lc = str(c).lower()
+            if lc in ["open", "开盘"]:
+                col_map[c] = "Open"
+            elif lc in ["high", "最高"]:
+                col_map[c] = "High"
+            elif lc in ["low", "最低"]:
+                col_map[c] = "Low"
+            elif lc in ["close", "收盘", "收盘价"]:
+                col_map[c] = "Close"
+            elif lc in ["volume", "成交量"]:
+                col_map[c] = "Volume"
+            elif lc in ["amount", "成交额", "成交金额", "成交额(元)"]:
+                col_map[c] = "Amount"
+            elif lc in ["turnover", "换手率", "换手"]:
+                col_map[c] = "Turnover"
+        if col_map:
+            data = data.rename(columns=col_map)
+        return data
 
     def get_top300_stocks(self):
         """获取全A股列表并按市值排序"""

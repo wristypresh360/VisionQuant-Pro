@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision, 
                  bt_validation, wf_train_months, wf_test_months, eng, PROJECT_ROOT,
-                 enable_stress_test: bool = False):
+                 enable_stress_test: bool = False, strict_no_future: bool = True):
     """
     回测核心逻辑
     
@@ -65,9 +65,11 @@ def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision,
             
             if use_wf:
                 _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, 
-                                wf_train_months, wf_test_months, eng, PROJECT_ROOT)
+                                wf_train_months, wf_test_months, eng, PROJECT_ROOT,
+                                strict_no_future=strict_no_future)
             else:
-                _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT_ROOT)
+                _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT_ROOT,
+                                     strict_no_future=strict_no_future)
             
             # Stress Testing（如果启用）
             if enable_stress_test:
@@ -81,7 +83,8 @@ def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision,
             st.code(traceback.format_exc())
 
 def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, 
-                      wf_train_months, wf_test_months, eng, PROJECT_ROOT):
+                      wf_train_months, wf_test_months, eng, PROJECT_ROOT,
+                      strict_no_future: bool = True):
     """Walk-Forward验证"""
     import streamlit as st
     from src.strategies.transaction_cost import AdvancedTransactionCost
@@ -90,10 +93,15 @@ def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
     test_days = wf_test_months * 21
     validator = WalkForwardValidator(train_period=train_days, test_period=test_days, step_size=test_days)
     cost_calc = AdvancedTransactionCost()
-    vision_map = _load_vision_map(symbol, PROJECT_ROOT)
+    vision_map = _load_vision_map(symbol, PROJECT_ROOT) if not strict_no_future else {}
+    ai_cache = {}
     
+    splits = list(validator.split(df))
     all_results = []
-    for fold_id, split in enumerate(validator.split(df), 1):
+    progress = st.progress(0)
+    status = st.empty()
+    total_folds = len(splits) if splits else 1
+    for fold_id, split in enumerate(splits, 1):
         train_data = df.iloc[split.train_indices]
         test_data = df.iloc[split.test_indices]
         
@@ -101,8 +109,11 @@ def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
         if test_data.empty:
             continue
         
-        ret, bench_ret, trades = _backtest_loop(test_data, symbol, bt_cap, bt_ma, bt_stop, 
-                                                bt_vision, vision_map, cost_calc)
+        ret, bench_ret, trades = _backtest_loop(
+            test_data, symbol, bt_cap, bt_ma, bt_stop,
+            bt_vision, vision_map, cost_calc,
+            strict_no_future=strict_no_future, eng=eng, PROJECT_ROOT=PROJECT_ROOT, ai_cache=ai_cache
+        )
         
         all_results.append({
             'fold': fold_id,
@@ -115,11 +126,16 @@ def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
             'alpha': ret - bench_ret,
             'trades': trades
         })
+        progress.progress(int(fold_id / total_folds * 100))
+        status.write(f"Walk-Forward进度: {fold_id}/{total_folds}")
+    progress.progress(100)
+    status.empty()
     
     if all_results:
         _display_wf_results(all_results, wf_train_months, wf_test_months)
 
-def _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT_ROOT):
+def _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT_ROOT,
+                         strict_no_future: bool = True):
     """简单回测"""
     import streamlit as st
     from src.strategies.transaction_cost import AdvancedTransactionCost
@@ -134,12 +150,21 @@ def _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PRO
         return
     
     cost_calc = AdvancedTransactionCost()
-    vision_map = _load_vision_map(symbol, PROJECT_ROOT)
+    vision_map = _load_vision_map(symbol, PROJECT_ROOT) if not strict_no_future else {}
+    ai_cache = {}
     
+    progress = st.progress(0)
+    status = st.empty()
+    status.write("回测计算中...")
+
     ret, bench_ret, trades, equity, cost_summary = _backtest_loop(
         df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, cost_calc,
-        return_equity=True, return_costs=True
+        return_equity=True, return_costs=True,
+        strict_no_future=strict_no_future, eng=eng, PROJECT_ROOT=PROJECT_ROOT, ai_cache=ai_cache,
+        progress_cb=lambda p: progress.progress(int(p * 100))
     )
+    progress.progress(100)
+    status.empty()
     
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=equity, name="VQ策略", line=dict(color='#ff4b4b', width=2)))
@@ -227,8 +252,71 @@ def _load_vision_map(symbol, PROJECT_ROOT):
     except:
         return {}
 
+def _render_window_image(window_df, out_path):
+    """渲染当前窗口K线图（回测用）"""
+    try:
+        import mplfinance as mpf
+        mc = mpf.make_marketcolors(up='red', down='green', inherit=True)
+        s = mpf.make_mpf_style(marketcolors=mc, gridstyle='')
+        mpf.plot(window_df, type='candle', style=s,
+                 savefig=dict(fname=out_path, dpi=50), figsize=(3, 3), axisoff=True)
+        return out_path
+    except Exception:
+        return None
+
+def _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT):
+    """
+    严格无未来函数的AI胜率计算：
+    - 仅使用当前日期及之前的K线窗口
+    - 检索结果强制限制在 query_date 之前
+    """
+    try:
+        if eng is None or "vision" not in eng or "loader" not in eng:
+            return 50.0
+        from src.strategies.kline_factor import KLineFactorCalculator
+        vision = eng["vision"]
+        loader = eng["loader"]
+        kline_calc = KLineFactorCalculator(data_loader=loader)
+
+        dt = pd.to_datetime(date_str, format="%Y%m%d", errors="coerce")
+        if dt is pd.NaT:
+            return 50.0
+
+        df_hist = df.loc[:dt].copy()
+        if len(df_hist) < 20:
+            return 50.0
+
+        window_df = df_hist.tail(20)
+        query_prices = window_df["Close"].values
+        # 优先使用历史K线图
+        img_path = vision._resolve_image_path(None, symbol, date_str)
+        if not img_path:
+            tmp_dir = os.path.join(PROJECT_ROOT, "data", "temp_backtest")
+            os.makedirs(tmp_dir, exist_ok=True)
+            img_path = os.path.join(tmp_dir, f"{symbol}_{date_str}.png")
+            img_path = _render_window_image(window_df, img_path)
+        if not img_path:
+            return 50.0
+
+        matches = vision.search_similar_patterns(
+            img_path, top_k=10, query_prices=query_prices, max_date=date_str
+        )
+        factor_result = kline_calc.calculate_hybrid_win_rate(
+            matches, query_symbol=symbol, query_date=date_str, query_df=df_hist
+        )
+        if isinstance(factor_result, dict):
+            enhanced = factor_result.get("enhanced_factor")
+            if isinstance(enhanced, dict) and enhanced.get("final_score") is not None:
+                return float(enhanced.get("final_score"))
+            return float(factor_result.get("hybrid_win_rate", 50.0))
+        return 50.0
+    except Exception:
+        return 50.0
+
 def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, cost_calc,
-                   return_equity=False, return_costs=False):
+                   return_equity=False, return_costs=False, strict_no_future: bool = False,
+                   eng=None, PROJECT_ROOT=None, ai_cache: Optional[dict] = None,
+                   progress_cb=None):
     """回测循环核心逻辑"""
     cash, shares, equity = bt_cap, 0, []
     entry_price = 0.0
@@ -245,14 +333,25 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
         "trade_count": 0
     }
     
-    for _, row in df.iterrows():
+    if ai_cache is None:
+        ai_cache = {}
+    total_rows = len(df)
+    step = max(1, total_rows // 50) if total_rows > 0 else 1
+    for i, (_, row) in enumerate(df.iterrows()):
         # 先取价格，再用作缺省值（修复 UnboundLocalError: p）
         p = float(row["Close"])
         ma20 = float(row.get("MA20", p))
         ma60 = float(row.get("MA60", p))
         macd = float(row.get("MACD", 0))
         date_str = row.name.strftime("%Y%m%d")
-        ai_win = vision_map.get((symbol, date_str), 50.0)
+        if strict_no_future:
+            if date_str in ai_cache:
+                ai_win = ai_cache[date_str]
+            else:
+                ai_win = _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT)
+                ai_cache[date_str] = ai_win
+        else:
+            ai_win = vision_map.get((symbol, date_str), 50.0)
         volume = float(row.get('Volume', df['Close'].mean() * 1000000))
 
         # A股涨跌停与停牌处理（Q9D）
@@ -334,6 +433,8 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
         
         equity.append(cash + shares * p)
         prev_close = p
+        if progress_cb and (i % step == 0 or i == total_rows - 1):
+            progress_cb((i + 1) / max(total_rows, 1))
     
     ret = (equity[-1] - bt_cap) / bt_cap * 100 if equity else 0
     bench_ret = (df['Close'].iloc[-1] / df['Close'].iloc[0] - 1) * 100 if len(df) > 0 else 0

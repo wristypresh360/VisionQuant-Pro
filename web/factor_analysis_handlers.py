@@ -10,10 +10,11 @@ import mplfinance as mpf
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 def show_factor_analysis(symbol, df_f, eng, PROJECT_ROOT):
     """
     因子有效性分析
-    
+
     Args:
         symbol: 股票代码
         df_f: 包含技术指标的DataFrame
@@ -21,24 +22,42 @@ def show_factor_analysis(symbol, df_f, eng, PROJECT_ROOT):
         PROJECT_ROOT: 项目根目录
     """
     import streamlit as st
-    
+
     try:
         logger.info(f"开始因子分析: {symbol}")
         from src.factor_analysis.ic_analysis import ICAnalyzer
         from src.factor_analysis.regime_detector import RegimeDetector
         from src.strategies.kline_factor import KLineFactorCalculator
         from src.factor_analysis.factor_invalidation import FactorInvalidationDetector
-        
+
         kline_calc = KLineFactorCalculator(data_loader=eng.get("loader"))
-        factor_values, forward_returns, dates = _calculate_factor_values(
-            df_f, symbol, kline_calc, eng["vision"], PROJECT_ROOT
+        factor_values, forward_returns, dates, horizon_returns, success_count, fail_count = _calculate_factor_values(
+            df_f, symbol, kline_calc, eng["vision"], PROJECT_ROOT, horizons=[1, 5, 10, 20]
         )
-        
+
         if len(factor_values) < 20:
-            st.warning("数据不足，需要至少20个有效数据点")
+            st.warning(f"数据不足，需要至少20个有效数据点（当前 {len(factor_values)}）")
+            st.caption(f"匹配诊断: 尝试 {success_count + fail_count} 次 | 成功 {success_count} 次 | 失败 {fail_count} 次")
+            if fail_count > success_count:
+                st.info("💡 失败率过高提示：当前图库对该股历史形态的覆盖度不足。建议扩充图库至100万样本。")
             logger.warning(f"因子分析数据不足: {symbol}, 有效点数: {len(factor_values)}")
             return
-        
+
+        # 样本量置信度提示（科学性）
+        n = len(factor_values)
+        if n >= 500:
+            conf = "高"
+        elif n >= 200:
+            conf = "中"
+        elif n >= 80:
+            conf = "低"
+        else:
+            conf = "偏低"
+        st.caption(f"有效样本数: {n} | 置信度: {conf}")
+        total_attempts = success_count + fail_count
+        fail_rate = (fail_count / total_attempts * 100) if total_attempts > 0 else 0.0
+        st.caption(f"匹配诊断: 尝试 {total_attempts} 次 | 成功 {success_count} 次 | 失败 {fail_count} 次 (失败率 {fail_rate:.1f}%)")
+
         factor_series = pd.Series(factor_values, index=pd.to_datetime(dates))
         returns_series = pd.Series(forward_returns, index=pd.to_datetime(dates))
 
@@ -50,9 +69,21 @@ def show_factor_analysis(symbol, df_f, eng, PROJECT_ROOT):
         ic_analyzer = ICAnalyzer(window=window)
         # v3.0: 开启稳健统计 (Winsorization)
         ic_result = ic_analyzer.analyze(factor_series, returns_series, method="pearson")
+        # 多持有期IC矩阵
+        try:
+            horizon_series = {}
+            for h, ret_list in horizon_returns.items():
+                if len(ret_list) != len(dates):
+                    continue
+                horizon_series[h] = pd.Series(ret_list, index=pd.to_datetime(dates))
+            multi_ic = ic_analyzer.analyze_multi_horizon(factor_series, horizon_series, method="pearson")
+        except Exception:
+            multi_ic = {}
         rolling_ic = ic_result.get("ic_series", pd.Series(dtype=float))
 
         _plot_ic_curve(rolling_ic, ic_result)
+        if multi_ic:
+            _plot_ic_horizon_matrix(multi_ic)
         _plot_sharpe_curve(ic_result)
         _plot_regime_distribution(df_f)
 
@@ -66,7 +97,7 @@ def show_factor_analysis(symbol, df_f, eng, PROJECT_ROOT):
 
         _plot_decay_analysis(rolling_ic, decay_result)
         _detect_invalidation(factor_series, returns_series)
-        
+
     except ImportError as e:
         logger.exception(f"因子分析模块导入失败: {symbol}")
         st.error(f"模块导入失败: {e}")
@@ -77,79 +108,164 @@ def show_factor_analysis(symbol, df_f, eng, PROJECT_ROOT):
         with st.expander("查看详细错误"):
             st.code(traceback.format_exc())
 
-def _calculate_factor_values(df_f, symbol, kline_calc, vision_engine, PROJECT_ROOT):
+
+def _calculate_factor_values(df_f, symbol, kline_calc, vision_engine, PROJECT_ROOT, horizons=None):
     """
     计算历史因子值
-    
+
     通过遍历历史数据，为每个时间点计算K线学习因子值
     """
+    if horizons is None:
+        horizons = [1, 5, 10, 20]
     factor_values, forward_returns, dates = [], [], []
-    
-    # 限制计算量，但要覆盖全区间（原实现只算最前200个点，导致“只看到2020”）
+    horizon_returns = {h: [] for h in horizons}
+
+    # 覆盖全区间 + 提升样本量（科学性优先）
     end_idx = len(df_f) - 6  # 需要 i+5 可取
     if end_idx <= 20:
-        return factor_values, forward_returns, dates
+        return factor_values, forward_returns, dates, horizon_returns, 0, 0
 
-    max_points = min(200, end_idx - 20 + 1)
-    sample_idx = np.linspace(20, end_idx, num=max_points, dtype=int)
-    sample_idx = sorted(set(int(x) for x in sample_idx))
+    total_points = end_idx - 20 + 1
+    # 目标样本数：尽量多，但上限600（兼顾性能）
+    target_points = min(600, total_points)
+    # 自适应步长：数据越长，步长越大
+    if total_points <= 300:
+        step = 1
+    elif total_points <= 600:
+        step = 2
+    elif total_points <= 1200:
+        step = 3
+    else:
+        step = max(1, total_points // target_points)
+    sample_idx = list(range(20, end_idx + 1, step))
+    # 兜底避免过多
+    if len(sample_idx) > target_points:
+        sample_idx = sample_idx[:target_points]
+
+    success_count = 0
+    fail_count = 0
 
     for i in sample_idx:
         try:
             current_data = df_f.iloc[i-20:i]
             if len(current_data) < 20:
                 continue
-            
+
+            date_dt = df_f.index[i]
+            date_str = _safe_date_str(date_dt)
+
             temp_img = os.path.join(PROJECT_ROOT, "data", f"temp_factor_{i}.png")
             mc = mpf.make_marketcolors(up='red', down='green', inherit=True)
             s = mpf.make_mpf_style(marketcolors=mc, gridstyle='')
-            mpf.plot(current_data, type='candle', style=s, savefig=dict(fname=temp_img, dpi=50), 
+            mpf.plot(current_data, type='candle', style=s, savefig=dict(fname=temp_img, dpi=50),
                     figsize=(3, 3), axisoff=True)
-            
-            matches = vision_engine.search_similar_patterns(temp_img, top_k=10)
-            
+
+            matches = vision_engine.search_similar_patterns(temp_img, top_k=10, max_date=date_dt)
+
+            # 严格无未来函数：若匹配结果稀少，则使用“同股历史窗口”回退
+            if not matches or len(matches) < 3:
+                matches = _self_match_windows(df_f, symbol, i, top_k=10)
+
             if matches and len(matches) > 0:
+                success_count += 1
                 try:
-                    date_str = _safe_date_str(df_f.index[i])
                     factor_result = kline_calc.calculate_hybrid_win_rate(
-                        matches, 
-                        query_symbol=symbol, 
-                        query_date=date_str
+                        matches,
+                        query_symbol=symbol,
+                        query_date=date_str,
+                        query_df=df_f.iloc[:i+1]
                     )
                     if isinstance(factor_result, dict):
-                        factor_value = factor_result.get('hybrid_win_rate', 50.0) / 100.0
+                        enhanced = factor_result.get("enhanced_factor")
+                        if isinstance(enhanced, dict) and enhanced.get("final_score") is not None:
+                            factor_value = float(enhanced.get("final_score")) / 100.0
+                        else:
+                            factor_value = factor_result.get('hybrid_win_rate', 50.0) / 100.0
                     else:
                         factor_value = 0.5
-                    
-                    # 未来5天收益率
+
+                    # 多持有期收益率
                     p_entry = df_f.iloc[i]['Close']
-                    p_exit = df_f.iloc[i+5]['Close']
+                    for h in horizons:
+                        if i + h < len(df_f):
+                            p_exit = df_f.iloc[i + h]['Close']
+                            ret = (p_exit - p_entry) / p_entry
+                            horizon_returns[h].append(ret)
+                    # 默认用5日作为主序列
+                    p_exit = df_f.iloc[i+5]['Close'] if i + 5 < len(df_f) else df_f.iloc[i]['Close']
                     ret = (p_exit - p_entry) / p_entry
-                    
+
                     factor_values.append(factor_value)
                     forward_returns.append(ret)
                     dates.append(date_str)
-                    
+
                 except Exception:
                     pass
-            
+            else:
+                fail_count += 1
+
             if os.path.exists(temp_img):
                 os.remove(temp_img)
-                
+
         except Exception:
+            fail_count += 1
             continue
-            
-    return factor_values, forward_returns, dates
+
+    return factor_values, forward_returns, dates, horizon_returns, success_count, fail_count
+
+
+def _self_match_windows(df_f, symbol, idx, window: int = 20, top_k: int = 10, max_windows: int = 200):
+    """
+    回退方案：仅在“同一股票历史窗口”内做形态相似度（无未来函数）
+    """
+    try:
+        if idx <= window:
+            return []
+        q_prices = df_f.iloc[idx - window: idx]["Close"].values
+        if len(q_prices) < window:
+            return []
+
+        # 控制窗口数量
+        start = window
+        end = idx
+        total = end - start
+        if total <= 0:
+            return []
+        step = max(1, total // max_windows)
+
+        q_norm = (q_prices - q_prices.mean()) / (q_prices.std() + 1e-8)
+        candidates = []
+        for j in range(start, end, step):
+            cand = df_f.iloc[j - window: j]["Close"].values
+            if len(cand) < window:
+                continue
+            c_norm = (cand - cand.mean()) / (cand.std() + 1e-8)
+            corr = np.corrcoef(q_norm, c_norm)[0, 1]
+            if np.isnan(corr):
+                corr = 0.0
+            sim = (corr + 1.0) / 2.0
+            date_str = df_f.index[j - 1].strftime("%Y%m%d")
+            candidates.append({
+                "symbol": str(symbol).zfill(6),
+                "date": date_str,
+                "score": float(sim),
+                "correlation": float(corr)
+            })
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates[:top_k]
+    except Exception:
+        return []
+
 
 def _plot_ic_curve(rolling_ic, ic_result):
     """绘制IC曲线"""
     import streamlit as st
-    
+
     st.markdown("#### IC 分析")
     if rolling_ic.empty:
         st.write("IC 数据不足")
         return
-        
+
     summary = ic_result.get("summary", {})
     mean_ic = summary.get("mean_ic", 0.0)
     std_ic = summary.get("std_ic", 0.0)
@@ -157,11 +273,11 @@ def _plot_ic_curve(rolling_ic, ic_result):
     positive_ratio = summary.get("positive_ratio", 0.0)
     half_life = summary.get("half_life", None)
     stability = summary.get("stability_score", None)
-    
+
     # 修正逻辑：IC为负不一定无效，可能是反向指标
     if abs(mean_ic) > 0.05:
         ic_status = "显著" + ("(正向)" if mean_ic > 0 else "(反向)")
-        ic_color = "normal" if mean_ic > 0 else "inverse" # 负值给红色/反色提示
+        ic_color = "normal" if mean_ic > 0 else "inverse"  # 负值给红色/反色提示
     elif abs(mean_ic) > 0.02:
         ic_status = "微弱"
         ic_color = "off"
@@ -173,14 +289,14 @@ def _plot_ic_curve(rolling_ic, ic_result):
     col1.metric("平均IC", f"{mean_ic:.4f}", delta=ic_status, delta_color=ic_color)
     col2.metric("IC标准差", f"{std_ic:.4f}")
     col3.metric("ICIR", f"{ic_ir:.2f}", delta="优秀" if abs(ic_ir) > 1.0 else "一般")
-    col4.metric("正IC比例", f"{positive_ratio*100:.1f}%", 
+    col4.metric("正IC比例", f"{positive_ratio*100:.1f}%",
                delta="良好" if positive_ratio > 0.6 else "一般")
     col5.metric("IC Half-Life", f"{half_life:.1f}" if half_life is not None else "N/A")
     col6.metric("稳定性评分", f"{float(stability):.2f}" if stability is not None else "N/A")
-    
+
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=rolling_ic.index, 
+        x=rolling_ic.index,
         y=rolling_ic.values,
         name="Rolling IC",
         marker_color=['red' if x >= 0 else 'green' for x in rolling_ic.values]
@@ -194,7 +310,7 @@ def _plot_ic_curve(rolling_ic, ic_result):
         yaxis="y2",
         line=dict(color='blue', width=2)
     ))
-    
+
     fig.update_layout(
         title="滚动IC与累积IC",
         height=300,
@@ -203,7 +319,7 @@ def _plot_ic_curve(rolling_ic, ic_result):
         showlegend=True
     )
     st.plotly_chart(fig, use_container_width=True)
-    
+
     with st.expander("ℹ️ 因子分析说明与指标解读", expanded=False):
         st.markdown(r"""
         **1. 核心概念**
@@ -226,14 +342,38 @@ def _plot_ic_curve(rolling_ic, ic_result):
         - **失效检测**: 综合IC衰减、拥挤度等维度判断因子是否失效。
         """)
 
+
+def _plot_ic_horizon_matrix(multi_ic: dict):
+    """多持有期IC矩阵"""
+    import streamlit as st
+    st.subheader("多持有期IC矩阵（IC衰减）")
+    matrix = multi_ic.get("ic_matrix")
+    if matrix is None or matrix.empty:
+        st.caption("IC矩阵数据不足")
+        return
+    st.dataframe(matrix, use_container_width=True, hide_index=True)
+
+    try:
+        fig = go.Figure(data=go.Heatmap(
+            z=matrix[["ic_mean", "ic_ir", "half_life"]].values,
+            x=["IC均值", "ICIR", "Half-Life"],
+            y=matrix["horizon"].astype(str).tolist(),
+            colorscale="RdBu"
+        ))
+        fig.update_layout(height=280, title="IC矩阵热图（不同持有期）")
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception:
+        pass
+
+
 def _plot_sharpe_curve(ic_result):
     """绘制滚动Sharpe"""
     import streamlit as st
     sharpe_series = ic_result.get("sharpe_series", pd.Series(dtype=float))
-    
+
     if sharpe_series.empty:
         return
-        
+
     st.subheader("Rolling Sharpe 分析")
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -242,30 +382,32 @@ def _plot_sharpe_curve(ic_result):
         name="Rolling Sharpe",
         line=dict(color='orange')
     ))
-    
+
     mean_sharpe = sharpe_series.mean()
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
     fig.update_layout(height=300)
     st.plotly_chart(fig, use_container_width=True)
     st.caption(f"Rolling Sharpe均值: {mean_sharpe:.3f}")
 
+
 def _plot_regime_distribution(df):
     """Regime分布"""
     pass
 
+
 def _plot_decay_analysis(rolling_ic, decay_result=None):
     """因子衰减分析"""
     import streamlit as st
-    
+
     st.subheader("因子衰减分析")
     decay_window = min(60, len(rolling_ic))
     if decay_window < 10:
         return
-        
+
     recent_ic = rolling_ic.tail(decay_window).mean()
     earlier_ic = rolling_ic.head(decay_window).mean() if len(rolling_ic) > decay_window else recent_ic
     decay_rate = (recent_ic - earlier_ic) / abs(earlier_ic) * 100 if earlier_ic != 0 else 0
-    
+
     col1, col2 = st.columns(2)
     col1.metric("早期IC均值", f"{earlier_ic:.4f}")
     col2.metric("近期IC均值", f"{recent_ic:.4f}", delta=f"{decay_rate:.1f}%",
@@ -277,12 +419,14 @@ def _plot_decay_analysis(rolling_ic, decay_result=None):
         if cps:
             st.caption(f"检测到拐点: {', '.join([str(c) for c in cps[-3:]])}")
 
+
 def _detect_invalidation(factor_values, returns):
     """因子失效检测"""
     pass
 
+
 def _safe_date_str(dt):
     try:
         return dt.strftime("%Y%m%d")
-    except:
+    except Exception:
         return str(dt)

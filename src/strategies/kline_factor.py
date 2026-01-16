@@ -14,6 +14,7 @@ Author: VisionQuant Team
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Optional
+from scipy import stats
 from datetime import datetime
 import os
 import sys
@@ -25,6 +26,8 @@ if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
 from src.data.triple_barrier import TripleBarrierLabeler, TripleBarrierPredictor, calculate_win_loss_ratio
+from src.factor_analysis.regime_detector import RegimeDetector, MarketRegime
+from src.features.kline_money_features import MoneyFeatureExtractor
 
 # HDF5标签文件路径
 HDF5_LABELS_PATH = os.path.join(PROJECT_ROOT, "data", "indices", "triple_barrier_labels.h5")
@@ -67,6 +70,10 @@ class KLineFactorCalculator:
         
         # 数据加载器
         self.data_loader = data_loader
+
+        # 情境识别与量价特征
+        self.regime_detector = RegimeDetector()
+        self.money_extractor = MoneyFeatureExtractor(window=20)
         
         # HDF5标签存储路径
         self.labels_hdf5_path = os.path.join(
@@ -80,7 +87,8 @@ class KLineFactorCalculator:
         self,
         matches: List[Dict],
         query_symbol: str = None,
-        query_date: str = None
+        query_date: str = None,
+        query_df: Optional[pd.DataFrame] = None
     ) -> Dict:
         """
         计算混合胜率（Triple Barrier + 传统胜率）
@@ -104,12 +112,12 @@ class KLineFactorCalculator:
                 'message': '无匹配结果'
             }
         
-        # 1. 计算Triple Barrier胜率
-        tb_result = self._calculate_triple_barrier_win_rate(matches)
+        # 1. 计算Triple Barrier胜率（引入时间衰减）
+        tb_result = self._calculate_triple_barrier_win_rate(matches, query_date=query_date)
         tb_win_rate = tb_result.get('win_rate', 50.0)
         
-        # 2. 计算传统胜率（收益率>0）
-        traditional_win_rate = self._calculate_traditional_win_rate(matches)
+        # 2. 计算传统胜率（收益率>0 + 时间衰减）
+        traditional_win_rate = self._calculate_traditional_win_rate(matches, query_date=query_date)
         
         # 3. 加权融合
         hybrid_win_rate = (
@@ -120,7 +128,7 @@ class KLineFactorCalculator:
         # 4. 确保在合理范围内
         hybrid_win_rate = max(0, min(100, hybrid_win_rate))
         
-        return {
+        result = {
             'hybrid_win_rate': round(hybrid_win_rate, 2),
             'tb_win_rate': round(tb_win_rate, 2),
             'traditional_win_rate': round(traditional_win_rate, 2),
@@ -130,14 +138,36 @@ class KLineFactorCalculator:
             'tb_details': tb_result,
             'message': '计算成功'
         }
+        
+        # 5. 扩展：收益分布 + 情境感知 + 量价复合（可选）
+        if query_df is not None:
+            try:
+                enhanced = self.calculate_enhanced_factor(
+                    matches=matches,
+                    query_symbol=query_symbol,
+                    query_date=query_date,
+                    query_df=query_df
+                )
+                result["enhanced_factor"] = enhanced
+            except Exception:
+                pass
 
-    def calculate_return_distribution(self, matches: List[Dict], horizon_days: int = 20) -> Dict:
+        return result
+
+    def calculate_return_distribution(
+        self,
+        matches: List[Dict],
+        horizon_days: int = 20,
+        query_date: Optional[str] = None,
+        use_time_decay: bool = True
+    ) -> Dict:
         """
-        更严格的收益分布估计（均值/分位数/CVaR）
+        更严格的收益分布估计（均值/分位数/CVaR/偏度/峰度）
         """
         if not self.data_loader or not matches:
             return {"valid": False}
         returns = []
+        weights = []
         for m in matches:
             symbol = str(m.get("symbol", "")).zfill(6)
             date_str = str(m.get("date", ""))
@@ -153,25 +183,47 @@ class KLineFactorCalculator:
                         entry = df.iloc[loc]["Close"]
                         future = df.iloc[loc + horizon_days]["Close"]
                         returns.append((future - entry) / entry * 100)
+                        if use_time_decay:
+                            w = self._time_decay_weight(match_date, query_date)
+                        else:
+                            w = 1.0
+                        weights.append(float(w))
             except Exception:
                 continue
         if not returns:
             return {"valid": False}
         s = pd.Series(returns)
-        q05 = float(s.quantile(0.05))
-        cvar = float(s[s <= q05].mean()) if (s <= q05).any() else q05
+        w = np.array(weights) if weights else np.ones(len(s))
+        w = w / (w.sum() + 1e-8)
+        q05 = float(self._weighted_quantile(s.values, w, 0.05))
+        q25 = float(self._weighted_quantile(s.values, w, 0.25))
+        q75 = float(self._weighted_quantile(s.values, w, 0.75))
+        cvar = float(np.average(s.values[s.values <= q05], weights=w[s.values <= q05])) if (s.values <= q05).any() else q05
+        win_rate = float(np.sum(w * (s.values > 0)))
+        pos = s.values[s.values > 0]
+        neg = s.values[s.values < 0]
+        odds = None
+        if len(pos) > 0 and len(neg) > 0:
+            odds = float(np.mean(pos) / (abs(np.mean(neg)) + 1e-8))
+        skew = float(stats.skew(s.values)) if len(s) >= 5 else 0.0
+        kurt = float(stats.kurtosis(s.values)) if len(s) >= 5 else 0.0
         return {
             "valid": True,
-            "mean": float(s.mean()),
-            "median": float(s.median()),
+            "mean": float(np.average(s.values, weights=w)),
+            "median": float(self._weighted_quantile(s.values, w, 0.5)),
             "q05": q05,
-            "q25": float(s.quantile(0.25)),
-            "q75": float(s.quantile(0.75)),
+            "q25": q25,
+            "q75": q75,
             "cvar": cvar,
-            "count": int(len(s))
+            "count": int(len(s)),
+            "win_rate": round(win_rate * 100, 2),
+            "odds": None if odds is None else round(odds, 3),
+            "skew": round(skew, 4),
+            "kurt": round(kurt, 4),
+            "weights_used": bool(use_time_decay)
         }
     
-    def _calculate_triple_barrier_win_rate(self, matches: List[Dict]) -> Dict:
+    def _calculate_triple_barrier_win_rate(self, matches: List[Dict], query_date: Optional[str] = None) -> Dict:
         """
         基于Top-K匹配结果计算Triple Barrier胜率
         
@@ -191,11 +243,11 @@ class KLineFactorCalculator:
         # 尝试从HDF5查询
         labels_from_hdf5 = self._query_labels_from_hdf5(matches)
         
-        # 统计标签分布
-        bullish_count = 0
-        bearish_count = 0
-        neutral_count = 0
-        valid_count = 0
+        # 统计标签分布（时间衰减权重）
+        bullish_count = 0.0
+        bearish_count = 0.0
+        neutral_count = 0.0
+        valid_count = 0.0
         
         for match in matches:
             symbol = str(match.get('symbol', '')).zfill(6)
@@ -209,13 +261,14 @@ class KLineFactorCalculator:
                 label = self._calculate_single_label(symbol, date_str)
             
             if label is not None:
-                valid_count += 1
+                w = self._time_decay_weight(date_str, query_date)
+                valid_count += w
                 if label == 1:
-                    bullish_count += 1
+                    bullish_count += w
                 elif label == -1:
-                    bearish_count += 1
+                    bearish_count += w
                 else:
-                    neutral_count += 1
+                    neutral_count += w
         
         if valid_count == 0:
             return {
@@ -229,7 +282,7 @@ class KLineFactorCalculator:
         
         return {
             'win_rate': win_rate,
-            'valid_matches': valid_count,
+            'valid_matches': int(round(valid_count)),
             'bullish_count': bullish_count,
             'bearish_count': bearish_count,
             'neutral_count': neutral_count,
@@ -237,7 +290,12 @@ class KLineFactorCalculator:
             'message': '计算成功'
         }
     
-    def _calculate_traditional_win_rate(self, matches: List[Dict], horizon_days: int = 5) -> float:
+    def _calculate_traditional_win_rate(
+        self,
+        matches: List[Dict],
+        horizon_days: int = 5,
+        query_date: Optional[str] = None
+    ) -> float:
         """
         计算传统胜率（未来收益率>0 的比例，按相似度加权）
         
@@ -269,7 +327,8 @@ class KLineFactorCalculator:
                 raw_score = float(match.get("score", 1.0))
             except Exception:
                 raw_score = 1.0
-            weight = max(raw_score - min_s + eps, eps)
+            time_w = self._time_decay_weight(date_str, query_date)
+            weight = max(raw_score - min_s + eps, eps) * time_w
             
             try:
                 # 解析日期
@@ -308,6 +367,175 @@ class KLineFactorCalculator:
             return 50.0
         
         return (weighted_positive / total_weight) * 100
+
+    def calculate_enhanced_factor(
+        self,
+        matches: List[Dict],
+        query_symbol: Optional[str] = None,
+        query_date: Optional[str] = None,
+        query_df: Optional[pd.DataFrame] = None,
+        horizons: List[int] = None
+    ) -> Dict:
+        """
+        复合因子计算：分布估计 + 情境感知 + 量价特征
+        """
+        if horizons is None:
+            horizons = [1, 5, 10, 20]
+
+        # 1) 分布估计（多持有期）
+        dist_map = {}
+        dist_scores = {}
+        for h in horizons:
+            dist = self.calculate_return_distribution(
+                matches, horizon_days=h, query_date=query_date, use_time_decay=True
+            )
+            dist_map[h] = dist
+            dist_scores[h] = self._distribution_score(dist)
+
+        # 2) 最优持有期（风险收益最佳）
+        best_horizon = max(dist_scores, key=lambda k: dist_scores.get(k, 0.0)) if dist_scores else 5
+        best_score = dist_scores.get(best_horizon, 0.5)
+
+        # 3) 情境感知
+        context = self._estimate_context(query_df)
+        context_score = context.get("context_score", 0.5)
+
+        # 4) 量价/资金特征
+        money_features = self.money_extractor.extract(query_df) if query_df is not None else {}
+        money_score = self.money_extractor.score(money_features) if money_features else 0.5
+
+        # 5) 复合评分（多阈值分层）
+        final_score = best_score * (0.7 + 0.3 * money_score) * (0.7 + 0.3 * context_score)
+        final_score = float(np.clip(final_score, 0.0, 1.0))
+
+        if final_score >= 0.7:
+            signal = "强"
+        elif final_score >= 0.55:
+            signal = "中"
+        elif final_score >= 0.45:
+            signal = "弱"
+        else:
+            signal = "无效"
+
+        return {
+            "final_score": round(final_score * 100, 2),
+            "signal_level": signal,
+            "best_horizon": int(best_horizon),
+            "dist_map": dist_map,
+            "context": context,
+            "money_features": money_features,
+            "money_score": round(float(money_score), 4),
+            "context_score": round(float(context_score), 4)
+        }
+
+    def estimate_scale_weights(self, scale_stats: Dict[str, Dict], default: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+        """
+        跨周期融合权重（基于收益分布质量打分）
+        """
+        if default is None:
+            default = {"daily": 0.6, "weekly": 0.3, "monthly": 0.1}
+
+        scores = {}
+        for scale, dist in scale_stats.items():
+            scores[scale] = self._distribution_score(dist)
+
+        if not scores or sum(scores.values()) <= 1e-8:
+            return default
+
+        total = sum(max(v, 0.0) for v in scores.values())
+        if total <= 1e-8:
+            return default
+        return {k: max(v, 0.0) / total for k, v in scores.items()}
+
+    @staticmethod
+    def _distribution_score(dist: Dict) -> float:
+        """
+        将分布统计映射为 0~1 的评分
+        """
+        if not dist or not dist.get("valid"):
+            return 0.5
+        win_rate = dist.get("win_rate", 50) / 100.0
+        mean = dist.get("mean", 0.0)
+        cvar = dist.get("cvar", 0.0)
+
+        mean_norm = (np.tanh(mean / 5.0) + 1.0) / 2.0
+        cvar_penalty = min(abs(cvar) / 10.0, 1.0)
+
+        score = 0.6 * win_rate + 0.4 * mean_norm - 0.2 * cvar_penalty
+        return float(np.clip(score, 0.0, 1.0))
+
+    def _estimate_context(self, df: Optional[pd.DataFrame]) -> Dict:
+        """
+        情境感知：Regime + 波动率 + 流动性
+        """
+        if df is None or df.empty or "Close" not in df:
+            return {"regime": "unknown", "volatility": None, "context_score": 0.5}
+
+        close = df["Close"].astype(float)
+        returns = close.pct_change().dropna()
+        if len(returns) < 20:
+            return {"regime": "unknown", "volatility": None, "context_score": 0.5}
+
+        regimes = self.regime_detector.detect_regime(returns, prices=close)
+        regime = regimes.iloc[-1].value if len(regimes) > 0 else MarketRegime.UNKNOWN.value
+
+        vol = float(returns.rolling(60).std().iloc[-1] * np.sqrt(252)) if len(returns) >= 60 else float(returns.std() * np.sqrt(252))
+        vol_penalty = min(max((vol - 0.2) / 0.2, 0.0), 1.0) * 0.2
+
+        # 流动性代理（基于量价特征）
+        money_feat = self.money_extractor.extract(df)
+        vol_ratio = money_feat.get("vol_ratio") if money_feat else None
+        liquidity_score = 0.5
+        if vol_ratio is not None:
+            liquidity_score = float(np.clip(vol_ratio / 1.5, 0.0, 1.0))
+
+        regime_score_map = {
+            MarketRegime.BULL.value: 0.7,
+            MarketRegime.OSCILLATING.value: 0.55,
+            MarketRegime.BEAR.value: 0.4,
+            MarketRegime.UNKNOWN.value: 0.5
+        }
+        base = regime_score_map.get(regime, 0.5)
+        context_score = base - vol_penalty + (liquidity_score - 0.5) * 0.2
+        context_score = float(np.clip(context_score, 0.0, 1.0))
+
+        return {
+            "regime": regime,
+            "volatility": round(vol, 4),
+            "liquidity_score": round(liquidity_score, 4),
+            "context_score": round(context_score, 4)
+        }
+
+    @staticmethod
+    def _time_decay_weight(match_date: Optional[str], query_date: Optional[str], half_life_days: int = 180) -> float:
+        """
+        时间衰减权重（指数衰减）
+        """
+        try:
+            if not query_date or not match_date:
+                return 1.0
+            md = pd.to_datetime(match_date) if "-" in str(match_date) else pd.to_datetime(match_date, format="%Y%m%d")
+            qd = pd.to_datetime(query_date) if "-" in str(query_date) else pd.to_datetime(query_date, format="%Y%m%d")
+            days = abs((qd - md).days)
+            return float(0.5 ** (days / max(half_life_days, 1)))
+        except Exception:
+            return 1.0
+
+    @staticmethod
+    def _weighted_quantile(values: np.ndarray, weights: np.ndarray, quantile: float) -> float:
+        """加权分位数"""
+        if len(values) == 0:
+            return 0.0
+        sorter = np.argsort(values)
+        values = values[sorter]
+        weights = weights[sorter]
+        cumulative = np.cumsum(weights)
+        if cumulative[-1] <= 0:
+            return float(values[-1])
+        cutoff = quantile * cumulative[-1]
+        idx = np.searchsorted(cumulative, cutoff)
+        idx = min(max(idx, 0), len(values) - 1)
+        return float(values[idx])
     
     def _query_labels_from_hdf5(self, matches: List[Dict]) -> Dict:
         """

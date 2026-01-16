@@ -204,6 +204,40 @@ class ICAnalyzer:
             }
         }
 
+    def analyze_multi_horizon(
+        self,
+        factor_values: pd.Series,
+        returns_map: Dict[int, pd.Series],
+        method: str = 'pearson'
+    ) -> Dict:
+        """
+        多持有期IC分析（1/5/10/20天）
+        """
+        rows = []
+        details = {}
+        for horizon, ret_series in returns_map.items():
+            if ret_series is None or ret_series.empty:
+                continue
+            aligned = ret_series.reindex(factor_values.index).dropna()
+            aligned_f = factor_values.loc[aligned.index]
+            if len(aligned_f) < 20:
+                continue
+            # 动态窗口
+            window = min(self.window, max(20, len(aligned_f) // 2))
+            window = min(window, max(2, len(aligned_f) - 1))
+            analyzer = ICAnalyzer(window=window, method=self.method)
+            res = analyzer.analyze(aligned_f, aligned, method=method)
+            details[horizon] = res
+            rows.append({
+                "horizon": horizon,
+                "ic_mean": round(res.get("ic_mean", 0), 4),
+                "ic_ir": round(res.get("ic_ir", 0), 4),
+                "half_life": res.get("half_life"),
+                "positive_ratio": round(res.get("ic_positive_ratio", 0), 3)
+            })
+        matrix = pd.DataFrame(rows).sort_values("horizon") if rows else pd.DataFrame()
+        return {"ic_matrix": matrix, "details": details}
+
     def _ic_half_life(self, ic_series: pd.Series) -> Optional[float]:
         """IC Half-Life（基于AR(1)近似）"""
         s = ic_series.dropna()
@@ -229,5 +263,7 @@ class ICAnalyzer:
         std_ic = s.std()
         if std_ic <= 0:
             return 1.0
-        score = 1 - (std_ic / (abs(mean_ic) + 1e-6))
+        # 更稳健的稳定性分数：避免均值略小导致直接归零
+        ratio = std_ic / (abs(mean_ic) + 1e-6)
+        score = 1.0 / (1.0 + ratio)
         return float(np.clip(score, 0.0, 1.0))

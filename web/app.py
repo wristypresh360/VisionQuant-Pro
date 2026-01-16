@@ -228,17 +228,17 @@ with st.sidebar:
     symbol_input = st.text_input("请输入 A 股代码", value="601899", help="输入6位代码", key="symbol_input")
     symbol = symbol_input.strip().zfill(6)
     mode = st.radio("功能模块:", ("🔍 单只股票分析", "📊 批量组合分析"), key="mode_select")
-    
+
     if mode == "🔍 单只股票分析":
         st.divider()
         st.caption("回测 / 因子有效性分析入口已统一放在“单只股票分析”报告底部 Tab 中（更符合使用路径）。")
     
     elif mode == "📊 批量组合分析":
         batch_input = st.text_area("输入股票代码（每行一个，最多30只）", height=150, key="batch_input")
-    
+
     st.divider()
     run_btn = st.button("🚀 开始分析", type="primary", use_container_width=True)
-    
+
     if st.button("🔄 强制重载", help="清除缓存，重新加载模块"):
         st.cache_resource.clear()
         st.rerun()
@@ -287,6 +287,9 @@ if mode == "🔍 单只股票分析":
         if "res" in st.session_state:
             del st.session_state.res
 
+        progress = st.progress(0)
+        status = st.empty()
+        status.write("加载行情数据...")
         with st.spinner(f"正在全栈扫描 {symbol}..."):
             try:
                 logger.info(f"开始分析股票: {symbol}")
@@ -299,15 +302,18 @@ if mode == "🔍 单只股票分析":
                 logger.exception(f"数据获取异常: {symbol}")
                 st.error(f"数据获取失败: {str(e)}")
                 st.stop()
+            progress.progress(20)
 
             # 数据质量报告
             try:
                 quality_report = eng["loader"].quality_checker.check_data_quality(df, symbol)
             except Exception:
                 quality_report = {}
+            progress.progress(30)
 
             fund_data = eng["fund"].get_stock_fundamentals(symbol)
             stock_name = fund_data.get('name', symbol)
+            status.write("生成查询K线图...")
 
             # 优先使用已存在的历史K线图（保证与索引同分布）
             date_str = df.index[-1].strftime("%Y%m%d")
@@ -317,9 +323,11 @@ if mode == "🔍 单只股票分析":
                 mc = mpf.make_marketcolors(up='red', down='green', inherit=True)
                 s = mpf.make_mpf_style(marketcolors=mc, gridstyle='')
                 mpf.plot(df.tail(20), type='candle', style=s, savefig=dict(fname=q_p, dpi=50), figsize=(3, 3), axisoff=True)
+            progress.progress(45)
             
             query_prices = df.tail(20)['Close'].values if len(df) >= 20 else None
-            # 多尺度检索（日/周/月）
+            # 多尺度检索（日/周/月）+ 动态权重融合
+            status.write("相似形态检索中...")
             try:
                 from src.data.multi_scale_generator import MultiScaleChartGenerator
                 gen = MultiScaleChartGenerator(figsize=(3, 3), dpi=50)
@@ -328,12 +336,32 @@ if mode == "🔍 单只股票分析":
                 gen.generate_weekly_chart(df, weeks=20, output_path=q_week)
                 gen.generate_monthly_chart(df, months=20, output_path=q_month)
                 img_paths = {"daily": q_p, "weekly": q_week, "monthly": q_month}
-                matches = eng["vision"].search_multi_scale_patterns(img_paths, top_k=10, query_prices=query_prices)
+                # 动态融合权重：基于各周期的收益分布质量评分
+                try:
+                    kline_factor_calc = KLineFactorCalculator(data_loader=eng["loader"])
+                    scale_matches = {
+                        "daily": eng["vision"].search_similar_patterns(q_p, top_k=10, query_prices=query_prices, max_date=date_str),
+                        "weekly": eng["vision"].search_similar_patterns(q_week, top_k=10, max_date=date_str),
+                        "monthly": eng["vision"].search_similar_patterns(q_month, top_k=10, max_date=date_str),
+                    }
+                    scale_stats = {
+                        k: kline_factor_calc.calculate_return_distribution(v, horizon_days=5, query_date=date_str)
+                        for k, v in scale_matches.items()
+                    }
+                    scale_weights = kline_factor_calc.estimate_scale_weights(scale_stats)
+                except Exception:
+                    scale_weights = None
+
+                matches = eng["vision"].search_multi_scale_patterns(
+                    img_paths, top_k=10, query_prices=query_prices, weights=scale_weights, max_date=date_str
+                )
             except Exception:
-                matches = eng["vision"].search_similar_patterns(q_p, top_k=10, query_prices=query_prices)
+                matches = eng["vision"].search_similar_patterns(q_p, top_k=10, query_prices=query_prices, max_date=date_str)
+            progress.progress(65)
 
             # 补齐相似度字段，减少 N/A
             matches = _augment_matches(matches, q_p, query_prices, eng["loader"], eng["vision"], os.path.join(PROJECT_ROOT, "data"))
+            progress.progress(75)
 
             def get_future_trajectories(matches, loader):
                 trajectories, details = [], []
@@ -377,7 +405,8 @@ if mode == "🔍 单只股票分析":
                 hybrid_win_rate_result = kline_factor_calc.calculate_hybrid_win_rate(
                     matches, 
                     query_symbol=symbol,
-                    query_date=query_date_str
+                    query_date=query_date_str,
+                    query_df=df
                 )
                 if isinstance(hybrid_win_rate_result, dict):
                     hybrid_win_rate = hybrid_win_rate_result.get('hybrid_win_rate', traditional_win_rate)
@@ -389,12 +418,22 @@ if mode == "🔍 单只股票分析":
                 logger.warning(f"混合胜率计算失败，使用传统胜率: {symbol}, 错误={str(e)}")
                 hybrid_win_rate = traditional_win_rate
                 hybrid_win_rate_result = None
+            progress.progress(85)
             
             win_rate = hybrid_win_rate if hybrid_win_rate is not None else traditional_win_rate
+            enhanced_factor = None
+            enhanced_score = None
+            if isinstance(hybrid_win_rate_result, dict):
+                enhanced_factor = hybrid_win_rate_result.get("enhanced_factor")
+                if isinstance(enhanced_factor, dict):
+                    enhanced_score = enhanced_factor.get("final_score")
+            # 多因子评分使用增强因子分数（若有），否则回退混合胜率
+            win_rate_for_score = enhanced_score if enhanced_score is not None else win_rate
 
             df_f = eng["factor"]._add_technical_indicators(df)
             news_text = eng["news"].get_latest_news(symbol)
             ind_name, peers_df = eng["fund"].get_industry_peers(symbol)
+            progress.progress(95)
 
             returns = df['Close'].pct_change().dropna()
             try:
@@ -408,9 +447,13 @@ if mode == "🔍 单只股票分析":
                 dynamic_weights = None
             
             if dynamic_weights:
-                total_score, initial_action, s_details = eng["factor"].get_scorecard(win_rate, df_f.iloc[-1], fund_data, returns=returns)
+                total_score, initial_action, s_details = eng["factor"].get_scorecard(
+                    win_rate_for_score, df_f.iloc[-1], fund_data, returns=returns
+                )
             else:
-                total_score, initial_action, s_details = eng["factor"].get_scorecard(win_rate, df_f.iloc[-1], fund_data)
+                total_score, initial_action, s_details = eng["factor"].get_scorecard(
+                    win_rate_for_score, df_f.iloc[-1], fund_data
+                )
 
             report = eng["agent"].analyze(symbol, total_score, initial_action, {"win_rate": win_rate, "score": 0.9},
                                           df_f.iloc[-1].to_dict(), fund_data, news_text)
@@ -428,6 +471,9 @@ if mode == "🔍 单只股票分析":
                 "matches": matches, "q_p": q_p,
                 "quality_report": quality_report
             }
+            if enhanced_factor:
+                res_dict["enhanced_factor"] = enhanced_factor
+                res_dict["enhanced_score"] = enhanced_score
             
             if hybrid_win_rate_result and hybrid_win_rate is not None:
                 res_dict["hybrid_win_rate"] = hybrid_win_rate
@@ -438,6 +484,8 @@ if mode == "🔍 单只股票分析":
                 res_dict["win_rate_type"] = "传统胜率"
             
             st.session_state.res = res_dict
+            progress.progress(100)
+            status.empty()
             st.session_state.last_context = f"""
             股票名称: {stock_name} ({symbol})
             当前时间: {datetime.now().strftime('%Y-%m-%d')}
@@ -453,7 +501,7 @@ if mode == "🔍 单只股票分析":
             --- 初始观点 ---
             {report.reasoning}
             """
-            
+
             if url_jump_mode:
                 st.session_state.clear_url_after_render = True
 
@@ -557,9 +605,15 @@ if mode == "🔍 单只股票分析":
             fig.add_trace(go.Scatter(y=d['mean'], mode='lines+markers', line=dict(color='#d62728', width=3), name='平均预期'))
             fig.update_layout(title=f"未来5日走势推演 (胜率: {d['win']:.0f}%)", xaxis_title="天数", yaxis_title="收益%", height=400)
             st.plotly_chart(fig, config={"displayModeBar": False}, use_container_width=True)
-            c1, c2, c3 = st.columns(3)
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("历史胜率", f"{d['win']:.1f}%")
             c2.metric("预期收益", f"{d['ret']:.2f}%")
+            if d.get("enhanced_score") is not None:
+                c3.metric("增强因子分", f"{d['enhanced_score']:.2f}")
+                c4.metric("信号强度", d.get("enhanced_factor", {}).get("signal_level", "N/A"))
+            else:
+                c3.metric("增强因子分", "N/A")
+                c4.metric("信号强度", "N/A")
             
             # 胜率计算公式说明
             if d.get('win_rate_type') == '混合胜率' and 'hybrid_win_rate' in d:
@@ -598,6 +652,36 @@ if mode == "🔍 单只股票分析":
                     st.write(f"分位数: Q05={dist.get('q05'):.2f}%, Q25={dist.get('q25'):.2f}%, Q75={dist.get('q75'):.2f}%")
                     st.write(f"CVaR(5%): {dist.get('cvar'):.2f}%")
 
+            # 复合因子解释（分布 + 情境 + 量价）
+            if d.get("enhanced_factor"):
+                ef = d["enhanced_factor"]
+                with st.expander("🧭 情境感知与量价复合因子（新增）", expanded=False):
+                    st.write(f"最佳持有期: {ef.get('best_horizon', 'N/A')} 天")
+                    st.write(f"信号强度: {ef.get('signal_level', 'N/A')} | 增强因子分: {ef.get('final_score', 'N/A')}")
+                    context = ef.get("context", {})
+                    st.caption(f"Regime: {context.get('regime')} | 波动率: {context.get('volatility')} | 流动性评分: {context.get('liquidity_score')}")
+                    money = ef.get("money_features", {})
+                    if money:
+                        st.write("量价/资金特征:")
+                        st.json(money)
+                    dist_map = ef.get("dist_map", {})
+                    if dist_map:
+                        rows = []
+                        for h, stats in dist_map.items():
+                            if not stats or not stats.get("valid"):
+                                continue
+                            rows.append({
+                                "持有期": h,
+                                "均值": round(stats.get("mean", 0), 2),
+                                "胜率": round(stats.get("win_rate", 0), 2),
+                                "CVaR": round(stats.get("cvar", 0), 2),
+                                "偏度": stats.get("skew"),
+                                "峰度": stats.get("kurt"),
+                                "赔率": stats.get("odds")
+                            })
+                        if rows:
+                            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
         st.divider()
         c_left, c_right = st.columns([1.5, 1])
         with c_left:
@@ -616,7 +700,7 @@ if mode == "🔍 单只股票分析":
             m2.metric("ROE", f"{d['fund'].get('roe')}%" if fund_ok.get("finance") else "N/A")
             m3.metric("PE", f"{d['fund'].get('pe_ttm')}" if fund_ok.get("spot") else "N/A")
             m4.metric("趋势", "看涨" if d['df_f'].iloc[-1]['MA_Signal'] > 0 else "看跌")
-            
+
             with st.expander("📊 杜邦分析 & 因子明细"):
                 col_a, col_b = st.columns(2)
                 with col_a:
@@ -722,13 +806,19 @@ if mode == "🔍 单只股票分析":
                 key="enable_stress",
                 help="在极端市场条件下测试策略鲁棒性（2008金融危机、2020疫情崩盘、2015股灾）",
             )
+            strict_no_future = st.checkbox(
+                "严格无未来函数（更慢）",
+                value=st.session_state.get("strict_no_future", True),
+                key="strict_no_future",
+                help="仅使用当前日期及之前的相似形态，避免未来数据泄漏"
+            )
 
             if st.button("开始回测", key="backtest_btn"):
                 run_backtest(
                     symbol, bt_start_val, bt_end_val, bt_cap_val, bt_ma_val,
                     bt_stop_val, bt_vision_val, bt_validation_val,
                     wf_train_months_val, wf_test_months_val, eng, PROJECT_ROOT,
-                    enable_stress_test=enable_stress
+                    enable_stress_test=enable_stress, strict_no_future=strict_no_future
                 )
 
         with tab_fa:

@@ -12,6 +12,7 @@
 
 import os
 import sys
+import argparse
 import torch
 import torch.nn as nn
 from torchvision import transforms
@@ -31,11 +32,21 @@ if PROJECT_ROOT not in sys.path:
 
 from src.models.attention_cae import AttentionCAE
 
-# 输入输出路径
-IMG_BASE_DIR = os.path.join(PROJECT_ROOT, "data", "images")
+# 输入输出路径（默认值，可被命令行覆盖）
+DEFAULT_IMG_BASE_DIR = os.path.join(PROJECT_ROOT, "data", "images")
 MODEL_PATH = os.path.join(PROJECT_ROOT, "data", "models", "attention_cae_best.pth")
-INDEX_FILE = os.path.join(PROJECT_ROOT, "data", "indices", "cae_faiss_attention.bin")
-META_CSV = os.path.join(PROJECT_ROOT, "data", "indices", "meta_data_attention.csv")
+DEFAULT_INDEX_FILE = os.path.join(PROJECT_ROOT, "data", "indices", "cae_faiss_attention.bin")
+DEFAULT_META_CSV = os.path.join(PROJECT_ROOT, "data", "indices", "meta_data_attention.csv")
+
+parser = argparse.ArgumentParser(description="用 AttentionCAE 重建 FAISS 索引")
+parser.add_argument("--img-dir", type=str, default=DEFAULT_IMG_BASE_DIR, help="K线图目录（默认 data/images）")
+parser.add_argument("--index-file", type=str, default=DEFAULT_INDEX_FILE, help="输出索引文件路径")
+parser.add_argument("--meta-csv", type=str, default=DEFAULT_META_CSV, help="输出元数据CSV路径")
+args = parser.parse_args()
+
+IMG_BASE_DIR = args.img_dir
+INDEX_FILE = args.index_file
+META_CSV = args.meta_csv
 
 # 设备选择
 if torch.backends.mps.is_available():
@@ -76,7 +87,7 @@ print("="*60)
 
 # 查找所有 PNG 文件
 all_img_paths = glob.glob(os.path.join(IMG_BASE_DIR, "**", "*.png"), recursive=True)
-print(f"✅ 找到 {len(all_img_paths)} 张图片")
+print(f"✅ 找到 {len(all_img_paths)} 张图片 (目录: {IMG_BASE_DIR})")
 
 if len(all_img_paths) == 0:
     print("❌ 没有找到图片文件！请检查路径:", IMG_BASE_DIR)

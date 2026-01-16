@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import pandas as pd
 from typing import Tuple, Optional
 
 
@@ -57,7 +58,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.norm = nn.LayerNorm(in_channels)
         self.dropout = nn.Dropout(dropout)
         
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, attn_bias: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         前向传播
         
@@ -85,6 +86,14 @@ class MultiHeadSelfAttention(nn.Module):
         # [B, num_heads, H*W, head_dim] @ [B, num_heads, head_dim, H*W]
         # -> [B, num_heads, H*W, H*W]
         attn = torch.matmul(q.transpose(-2, -1), k) * self.scale
+        # 事件偏置（用于K线关键事件关注，可选）
+        if attn_bias is not None:
+            # 支持 [B, H*W] 或 [B, 1, 1, H*W] 格式
+            if attn_bias.dim() == 2:
+                attn_bias = attn_bias.unsqueeze(1).unsqueeze(2)
+            elif attn_bias.dim() == 3:
+                attn_bias = attn_bias.unsqueeze(2)
+            attn = attn + attn_bias
         attn_weights = F.softmax(attn, dim=-1)
         attn_weights = self.dropout(attn_weights)
         
@@ -232,7 +241,7 @@ class AttentionCAE(nn.Module):
         # 保存最近的注意力权重（用于可视化）
         self._last_attention_weights = None
         
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
+    def encode(self, x: torch.Tensor, event_bias: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         编码：图像 -> 特征向量
         
@@ -247,7 +256,7 @@ class AttentionCAE(nn.Module):
         
         # 应用注意力
         if self.use_attention:
-            features, attn_weights = self.attention(features)
+            features, attn_weights = self.attention(features, attn_bias=event_bias)
             self._last_attention_weights = attn_weights
         
         # 投影到隐空间
@@ -257,6 +266,42 @@ class AttentionCAE(nn.Module):
         latent = F.normalize(latent, p=2, dim=1)
         
         return latent
+
+    @staticmethod
+    def build_event_bias_from_series(
+        prices: np.ndarray,
+        volumes: Optional[np.ndarray] = None,
+        grid_size: int = 14
+    ) -> Optional[torch.Tensor]:
+        """
+        基于K线事件构造注意力偏置（可用于训练/解释）
+        事件包含：大阳/大阴、放量、均线交叉等。
+        """
+        try:
+            if prices is None or len(prices) < 5:
+                return None
+            prices = np.asarray(prices, dtype=float)
+            n = len(prices)
+            # 事件强度：收益率绝对值
+            returns = np.diff(prices) / (prices[:-1] + 1e-8)
+            strength = np.concatenate([[0.0], np.abs(returns)])
+
+            # 放量事件
+            if volumes is not None and len(volumes) == n:
+                vol = np.asarray(volumes, dtype=float)
+                vol_ratio = vol / (pd.Series(vol).rolling(20).mean().values + 1e-8)
+                strength = strength + np.clip(vol_ratio - 1.0, 0, 2.0) * 0.5
+
+            # 映射到14格
+            idx = np.linspace(0, n - 1, grid_size).astype(int)
+            bias = strength[idx]
+            bias = (bias - bias.min()) / (bias.max() - bias.min() + 1e-8)
+            bias = torch.tensor(bias, dtype=torch.float32)
+            # 输出形状 [1, grid_size*grid_size]，沿时间轴扩展
+            bias = bias.repeat(grid_size)  # 简化：每列共享同一时间权重
+            return bias.unsqueeze(0)
+        except Exception:
+            return None
     
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         """

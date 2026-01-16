@@ -126,12 +126,20 @@ class BatchAnalyzer:
 
                 matches = self.engines["vision"].search_similar_patterns(q_p, top_k=10)
 
-            # 4. 混合胜率计算（Triple Barrier + 传统胜率）
+            # 4. 混合胜率计算（Triple Barrier + 传统胜率）+ 复合因子
                 win_rate_result = self.kline_factor_calc.calculate_hybrid_win_rate(
-                    matches, query_symbol=symbol, query_date=datetime.now().strftime("%Y%m%d")
+                    matches,
+                    query_symbol=symbol,
+                    query_date=datetime.now().strftime("%Y%m%d"),
+                    query_df=df
                 )
-                win_rate = win_rate_result['hybrid_win_rate']
-            dist = self.kline_factor_calc.calculate_return_distribution(matches, horizon_days=20) if matches else {"valid": False}
+                enhanced = win_rate_result.get("enhanced_factor") if isinstance(win_rate_result, dict) else None
+                win_rate = enhanced.get("final_score") if isinstance(enhanced, dict) and enhanced.get("final_score") is not None else win_rate_result.get('hybrid_win_rate', 50.0)
+            dist = self.kline_factor_calc.calculate_return_distribution(
+                matches,
+                horizon_days=20,
+                query_date=datetime.now().strftime("%Y%m%d")
+            ) if matches else {"valid": False}
 
             # 5. 技术指标
             df_f = self.engines["factor"]._add_technical_indicators(df)

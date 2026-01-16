@@ -333,7 +333,7 @@ class VisionEngine:
             return None
 
     def search_similar_patterns(self, target_img_path, top_k=10, query_prices=None,
-                                rerank_with_pixels=True, rerank_top_k=80):
+                                rerank_with_pixels=True, rerank_top_k=80, max_date: str = None):
         """
         【核心改进】DTW主导 + 视觉辅助的混合检索
         
@@ -364,6 +364,7 @@ class VisionEngine:
         candidates = []
         seen_dates = {}
         ISOLATION_DAYS = 20
+        max_dt = self._parse_date(max_date) if max_date else None
 
         # === 优化2: 视觉候选 +（可选）价格相关性 ===
         # 注意：对“非热门股/冷门日期”，在循环里频繁拉取历史数据很容易失败。
@@ -395,7 +396,7 @@ class VisionEngine:
                 except:
                     continue
 
-            # 时间隔离检查
+            # 时间隔离检查（同一股票间隔）
             is_conflict = False
             if sym in seen_dates:
                 for existing_dt in seen_dates[sym]:
@@ -403,6 +404,10 @@ class VisionEngine:
                         is_conflict = True
                         break
             if is_conflict:
+                continue
+
+            # 严格时间隔离：不允许使用未来数据
+            if max_dt and current_dt and current_dt > max_dt:
                 continue
 
             # === 优化3: 计算价格序列相关性 + DTW + 形态特征（可选）===
@@ -571,7 +576,7 @@ class VisionEngine:
             return None
 
     def search_multi_scale_patterns(self, img_paths: dict, top_k=10, weights=None, query_prices=None,
-                                    rerank_with_pixels=True, rerank_top_k=80):
+                                    rerank_with_pixels=True, rerank_top_k=80, max_date: str = None):
         """
         多尺度检索：日/周/月图像分别检索，再加权融合
         """
@@ -584,6 +589,7 @@ class VisionEngine:
             weights = {"daily": 0.6, "weekly": 0.3, "monthly": 0.1}
 
         merged = {}
+        max_dt = self._parse_date(max_date) if max_date else None
         for scale, path in img_paths.items():
             vec = self._image_to_vector(path)
             if vec is None:
@@ -598,6 +604,9 @@ class VisionEngine:
                 info = self.meta_data[idx]
                 sym = str(info['symbol']).zfill(6)
                 date_str = str(info['date'])
+                dt = self._parse_date(date_str)
+                if max_dt and dt and dt > max_dt:
+                    continue
                 key = (sym, date_str)
                 # 距离转相似度
                 sim = self._vector_score_to_similarity(vector_score)
