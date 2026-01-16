@@ -140,9 +140,9 @@ class VisionEngine:
                     return feature.cpu().numpy().flatten()
                 else:
                     # QuantCAE.encode() 返回 50176 维，需要 pool 降维
-                    full_feature = self.model.encode(input_tensor)
-                    reduced_feature = self.pool(full_feature.unsqueeze(1)).squeeze(1)
-                    return reduced_feature.cpu().numpy().flatten()
+                full_feature = self.model.encode(input_tensor)
+                reduced_feature = self.pool(full_feature.unsqueeze(1)).squeeze(1)
+                return reduced_feature.cpu().numpy().flatten()
         except:
             return None
 
@@ -396,8 +396,30 @@ class VisionEngine:
                     c["edge_sim"] = edge_norm
                     c["score"] = 0.45 * c.get("sim_score", 0) + 0.35 * visual_sim + 0.20 * corr_score
 
-        # === 优化6: 排序并返回（保证Top-K） ===
-        candidates.sort(key=lambda x: x['score'], reverse=True)
+        # === 优化6: 强相关性过滤 (Strict Filter) & 重排序 ===
+        # 只有当原始相关性较高时，才认为视觉“像”（趋势一致）。
+        # 如果 embedding 相似但相关性很低，说明只是震荡幅度像但走势相反，用户会觉得“不像”。
+        if query_prices is not None:
+            # 1. 过滤：保留相关性 > 0.5 或 回报相关 > 0.4 的结果
+            #    (如果过滤后太少，则放宽标准)
+            strict_candidates = [
+                c for c in candidates 
+                if (c.get("correlation") is not None and c["correlation"] > 0.5) 
+                or (c.get("ret_corr") is not None and c["ret_corr"] > 0.4)
+            ]
+            
+            if len(strict_candidates) >= top_k:
+                candidates = strict_candidates
+            
+            # 2. 重排序：显著提升相关性权重，让走势更一致的排前面
+            #    New Score = 0.4 * Sim + 0.4 * Corr + 0.2 * Pixel
+            for c in candidates:
+                s = c.get("sim_score", 0)
+                corr = c.get("corr_norm", 0.5)
+                pix = c.get("pixel_sim", s) # fallback to sim if pixel not calc
+                c["score"] = 0.4 * s + 0.4 * corr + 0.2 * pix
+                
+            candidates.sort(key=lambda x: x['score'], reverse=True)
 
         # 返回Top-K
         return candidates[:top_k]
