@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VisionQuant-Pro Web</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://unpkg.com/vue@3.4.15/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  </head>
+  <body>
+    <div id="app" class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-title">🦄 VisionQuant Pro</div>
+          <div class="brand-sub">AI 全栈量化投研系统 v8.8 · Web迁移版</div>
+        </div>
+
+        <details class="panel" open>
+          <summary class="panel-title">⚙️ 数据源设置</summary>
+          <div class="field">
+            <label>选择数据源</label>
+            <select v-model="dataSource">
+              <option value="akshare">AkShare (免费)</option>
+              <option value="jqdata">JQData (聚宽)</option>
+              <option value="rqdata">RQData (米筐)</option>
+            </select>
+          </div>
+          <div class="tip">付费数据源需配置账号密码（此处为布局复刻，暂未接入切换）。</div>
+        </details>
+
+        <div class="panel">
+          <div class="panel-title">功能模块</div>
+          <div class="field">
+            <label>模块选择</label>
+            <div class="radio-group">
+              <label><input type="radio" value="single" v-model="mode" /> 单只股票分析</label>
+              <label><input type="radio" value="batch" v-model="mode" /> 批量组合分析</label>
+            </div>
+          </div>
+          <div class="field" v-if="mode === 'single'">
+            <label>股票代码</label>
+            <input v-model="symbol" placeholder="输入6位代码" />
+          </div>
+          <div class="field" v-if="mode === 'single'">
+            <label>日期（可选）</label>
+            <input v-model="date" placeholder="YYYYMMDD" />
+          </div>
+          <div class="field" v-if="mode === 'batch'">
+            <label>批量股票（每行一个，最多30）</label>
+            <textarea v-model="batchInput" rows="6" placeholder="如:\n600519\n000001\n300750"></textarea>
+          </div>
+          <div class="field small">
+            <label>TopK</label>
+            <input type="number" v-model.number="topK" min="5" max="20" />
+          </div>
+          <div class="field small checkbox">
+            <label>多尺度</label>
+            <input type="checkbox" v-model="multiScale" />
+          </div>
+          <button class="primary full" @click="runAnalyze" :disabled="loading">
+            {{ loading ? "分析中..." : "🚀 开始分析" }}
+          </button>
+          <div v-if="error" class="error">{{ error }}</div>
+          <div v-if="loading" class="loading">正在计算，请稍候...</div>
+        </div>
+
+        <details class="panel">
+          <summary class="panel-title">📈 因子 IC 评估</summary>
+          <div class="field">
+            <label>股票代码</label>
+            <input v-model="icSymbol" placeholder="如 000001" />
+          </div>
+          <div class="field">
+            <label>开始日期</label>
+            <input v-model="icStart" placeholder="YYYYMMDD" />
+          </div>
+          <div class="field">
+            <label>结束日期</label>
+            <input v-model="icEnd" placeholder="YYYYMMDD" />
+          </div>
+          <button class="secondary full" @click="runIC" :disabled="icLoading">
+            {{ icLoading ? "计算中..." : "计算IC" }}
+          </button>
+          <div v-if="icError" class="error">{{ icError }}</div>
+          <div v-if="icResult" class="ic-result">
+            <div>IC均值: {{ formatNum(icResult.ic_mean) }}</div>
+            <div>ICIR: {{ formatNum(icResult.ic_ir) }}</div>
+            <div>Half-Life: {{ formatNum(icResult.half_life) }}</div>
+            <div>稳定性: {{ formatNum(icResult.stability) }}</div>
+          </div>
+        </details>
+      </aside>
+
+      <main class="main">
+        <!-- 单只股票分析 -->
+        <div v-if="mode === 'single'">
+          <div class="title-block">
+            <div class="page-title">📊 深度投研报告: {{ reportTitle }}</div>
+          </div>
+
+          <section class="section">
+            <div class="section-title">1. 视觉模式识别</div>
+            <details>
+              <summary>ℹ️ 数据来源说明</summary>
+              <p>使用 AttentionCAE 提取特征 + FAISS 检索相似形态，结合DTW/形态特征进行排序。</p>
+            </details>
+            <details v-if="overview && overview.quality_report">
+              <summary>🧪 数据质量报告</summary>
+              <pre class="json">{{ overview.quality_report }}</pre>
+            </details>
+            <div class="query-block" v-if="visual">
+              <div class="query-image"><img :src="visual.query.image_b64" alt="query" /></div>
+              <div class="metrics">
+                <div class="metric"><div class="metric-label">股票</div><div class="metric-value">{{ visual.query.symbol }}</div></div>
+                <div class="metric"><div class="metric-label">日期</div><div class="metric-value">{{ visual.query.date }}</div></div>
+                <div class="metric"><div class="metric-label">传统胜率</div><div class="metric-value">{{ formatPercent(visual.metrics.traditional_win_rate) }}</div></div>
+                <div class="metric"><div class="metric-label">混合胜率</div><div class="metric-value">{{ formatPercent(visual.metrics.hybrid_win_rate) }}</div></div>
+                <div class="metric"><div class="metric-label">5日均收益</div><div class="metric-value">{{ formatPercent(visual.metrics.avg_future_ret_5d_pct) }}</div></div>
+              </div>
+            </div>
+
+            <details v-if="visual">
+              <summary>🔍 相似度分解（可解释）</summary>
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>股票</th><th>日期</th><th>DTW</th><th>相关性</th><th>形态</th><th>视觉</th><th>最终分</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(m, idx) in visual.matches" :key="idx">
+                    <td>{{ m.symbol }}</td><td>{{ m.date }}</td>
+                    <td>{{ formatNum(m.dtw_sim) }}</td><td>{{ formatNum(m.correlation) }}</td>
+                    <td>{{ formatNum(m.feature_sim) }}</td><td>{{ formatNum(m.sim_score) }}</td>
+                    <td>{{ formatNum(m.score) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </details>
+
+            <details>
+              <summary>🔥 注意力热力图（解释性）</summary>
+              <div class="placeholder">迁移中：Attention heatmap 将在下一阶段接入。</div>
+            </details>
+
+            <div class="section-subtitle" v-if="visual">Top10 相似K线</div>
+            <div class="grid" v-if="visual">
+              <div class="match-card" v-for="(m, idx) in visual.matches" :key="idx">
+                <div class="match-title">Top {{ idx + 1 }} · {{ m.symbol }} · {{ m.date }}</div>
+                <img :src="m.image_b64" alt="match" />
+                <div class="match-metrics">
+                  <span>DTW: {{ formatNum(m.dtw_sim) }}</span>
+                  <span>Corr: {{ formatNum(m.correlation) }}</span>
+                  <span>形态: {{ formatNum(m.feature_sim) }}</span>
+                  <span>视觉: {{ formatNum(m.sim_score) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-subtitle" v-if="visual">未来5日走势推演</div>
+            <div id="chart-traj" class="chart" v-if="visual"></div>
+            <details v-if="visual">
+              <summary>📊 收益分布估计（更严格）</summary>
+              <pre class="json">{{ visual.distribution }}</pre>
+            </details>
+          </section>
+
+          <section class="section">
+            <div class="section-title">2. 量化多因子看板</div>
+            <details>
+              <summary>ℹ️ 因子说明</summary>
+              <p>V(视觉) + F(基本面) + Q(技术面)，动态权重按市场regime调整。</p>
+            </details>
+            <div class="metrics" v-if="overview">
+              <div class="metric"><div class="metric-label">AI 总评分</div><div class="metric-value">{{ overview.scorecard.score }}/10 ({{ overview.scorecard.action }})</div></div>
+              <div class="metric"><div class="metric-label">ROE</div><div class="metric-value">{{ overview.fundamentals.roe }}%</div></div>
+              <div class="metric"><div class="metric-label">PE</div><div class="metric-value">{{ overview.fundamentals.pe_ttm }}</div></div>
+              <div class="metric"><div class="metric-label">趋势</div><div class="metric-value">{{ overview.technical.MA_Signal > 0 ? "看涨" : "看跌" }}</div></div>
+            </div>
+            <details v-if="overview">
+              <summary>📊 杜邦分析 & 因子明细</summary>
+              <pre class="json">{{ overview.scorecard.details }}</pre>
+            </details>
+          </section>
+
+          <section class="section">
+            <div class="section-title">3. 行业对标</div>
+            <table class="table" v-if="overview">
+              <thead>
+                <tr><th>行业</th><th>股票</th><th>PE</th><th>ROE</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="(p, idx) in overview.industry.peers" :key="idx">
+                  <td>{{ overview.industry.name }}</td>
+                  <td>{{ p.symbol || p.股票代码 || p.代码 }}</td>
+                  <td>{{ p.pe_ttm || p.PE || p['市盈率'] }}</td>
+                  <td>{{ p.roe || p.ROE }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="placeholder">行业对标数据加载中...</div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">4. 新闻舆情</div>
+            <details>
+              <summary>ℹ️ 数据来源</summary>
+              <p>AkShare + Google RSS + Yahoo Finance 多源容错。</p>
+            </details>
+            <div class="news" v-if="overview" v-html="overview.news.replace(/\\n/g,'<br/>')"></div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">🧪 回测 / 📈 因子有效性分析</div>
+            <div class="tabs">
+              <button :class="{active: activeTab==='bt'}" @click="activeTab='bt'">🧪 回测</button>
+              <button :class="{active: activeTab==='fa'}" @click="activeTab='fa'">📈 因子有效性分析</button>
+            </div>
+            <div v-if="activeTab==='bt'" class="placeholder">回测UI已完成布局复刻，接口迁移中。</div>
+            <div v-if="activeTab==='fa'" class="placeholder">因子有效性分析布局已完成，接口迁移中。</div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">5. AI 基金经理终审</div>
+            <div class="placeholder">AI 决策模块接口迁移中。</div>
+          </section>
+
+          <section class="section">
+            <div class="section-title">💬 智能对话</div>
+            <div class="placeholder">聊天模块接口迁移中。</div>
+          </section>
+        </div>
+
+        <!-- 批量组合分析 -->
+        <div v-else>
+          <div class="title-block">
+            <div class="page-title">📊 批量组合分析</div>
+          </div>
+
+          <section class="section" v-if="batch">
+            <div class="section-title">✅ 组合结果（核心 + 备选）</div>
+            <div class="metrics">
+              <div class="metric"><div class="metric-label">组合策略</div><div class="metric-value">{{ batch.tier_info.strategy }}</div></div>
+              <div class="metric"><div class="metric-label">优化器</div><div class="metric-value">{{ batch.tier_info.optimizer }}</div></div>
+              <div class="metric"><div class="metric-label">说明</div><div class="metric-value">{{ batch.tier_info.description }}</div></div>
+            </div>
+
+            <details open>
+              <summary>核心推荐组合</summary>
+              <pre class="json">{{ batch.weights.core }}</pre>
+            </details>
+            <details>
+              <summary>备选增强组合</summary>
+              <pre class="json">{{ batch.weights.enhanced }}</pre>
+            </details>
+          </section>
+
+          <section class="section" v-if="batch">
+            <div class="section-title">📌 仓位设计与风控设置</div>
+            <div class="metrics">
+              <div class="metric"><div class="metric-label">最小仓位</div><div class="metric-value">5%</div></div>
+              <div class="metric"><div class="metric-label">最大仓位</div><div class="metric-value">25%</div></div>
+              <div class="metric"><div class="metric-label">最大持仓数</div><div class="metric-value">10</div></div>
+            </div>
+          </section>
+
+          <section class="section" v-if="batch">
+            <div class="section-title">🧾 组合风险指标</div>
+            <div class="metrics">
+              <div class="metric"><div class="metric-label">期望收益</div><div class="metric-value">{{ formatPercent(batch.metrics.expected_return) }}</div></div>
+              <div class="metric"><div class="metric-label">风险(波动)</div><div class="metric-value">{{ formatPercent(batch.metrics.risk) }}</div></div>
+              <div class="metric"><div class="metric-label">Sharpe</div><div class="metric-value">{{ batch.metrics.sharpe_ratio }}</div></div>
+              <div class="metric"><div class="metric-label">CVaR(5%)</div><div class="metric-value">{{ formatPercent(batch.metrics.cvar) }}</div></div>
+            </div>
+          </section>
+
+          <section class="section" v-else>
+            <div class="placeholder">输入批量股票并开始分析，显示组合结果。</div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
