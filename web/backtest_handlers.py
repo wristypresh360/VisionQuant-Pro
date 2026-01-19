@@ -13,9 +13,10 @@ from src.utils.walk_forward import WalkForwardValidator
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision, 
+def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision,
                  bt_validation, wf_train_months, wf_test_months, eng, PROJECT_ROOT,
-                 enable_stress_test: bool = False, strict_no_future: bool = True):
+                 enable_stress_test: bool = False, strict_no_future: bool = True,
+                 ai_stride: int = 1, ai_fast_mode: bool = False):
     """
     回测核心逻辑
     
@@ -64,12 +65,14 @@ def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision,
                 return
             
             if use_wf:
-                _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, 
+                _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
                                 wf_train_months, wf_test_months, eng, PROJECT_ROOT,
-                                strict_no_future=strict_no_future)
+                                strict_no_future=strict_no_future,
+                                ai_stride=ai_stride, ai_fast_mode=ai_fast_mode)
             else:
                 _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT_ROOT,
-                                     strict_no_future=strict_no_future)
+                                     strict_no_future=strict_no_future,
+                                     ai_stride=ai_stride, ai_fast_mode=ai_fast_mode)
             
             # Stress Testing（如果启用）
             if enable_stress_test:
@@ -82,9 +85,10 @@ def run_backtest(symbol, bt_start, bt_end, bt_cap, bt_ma, bt_stop, bt_vision,
         with st.expander("查看详细错误"):
             st.code(traceback.format_exc())
 
-def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, 
+def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
                       wf_train_months, wf_test_months, eng, PROJECT_ROOT,
-                      strict_no_future: bool = True):
+                      strict_no_future: bool = True,
+                      ai_stride: int = 1, ai_fast_mode: bool = False):
     """Walk-Forward验证"""
     import streamlit as st
     from src.strategies.transaction_cost import AdvancedTransactionCost
@@ -112,7 +116,8 @@ def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
         ret, bench_ret, trades = _backtest_loop(
             test_data, symbol, bt_cap, bt_ma, bt_stop,
             bt_vision, vision_map, cost_calc,
-            strict_no_future=strict_no_future, eng=eng, PROJECT_ROOT=PROJECT_ROOT, ai_cache=ai_cache
+            strict_no_future=strict_no_future, eng=eng, PROJECT_ROOT=PROJECT_ROOT, ai_cache=ai_cache,
+            ai_stride=ai_stride, ai_fast_mode=ai_fast_mode
         )
         
         all_results.append({
@@ -135,7 +140,8 @@ def _run_walk_forward(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision,
         _display_wf_results(all_results, wf_train_months, wf_test_months)
 
 def _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PROJECT_ROOT,
-                         strict_no_future: bool = True):
+                         strict_no_future: bool = True,
+                         ai_stride: int = 1, ai_fast_mode: bool = False):
     """简单回测"""
     import streamlit as st
     from src.strategies.transaction_cost import AdvancedTransactionCost
@@ -161,7 +167,8 @@ def _run_simple_backtest(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, eng, PRO
         df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, cost_calc,
         return_equity=True, return_costs=True,
         strict_no_future=strict_no_future, eng=eng, PROJECT_ROOT=PROJECT_ROOT, ai_cache=ai_cache,
-        progress_cb=lambda p: progress.progress(int(p * 100))
+        progress_cb=lambda p: progress.progress(int(p * 100)),
+        ai_stride=ai_stride, ai_fast_mode=ai_fast_mode
     )
     progress.progress(100)
     status.empty()
@@ -264,7 +271,7 @@ def _render_window_image(window_df, out_path):
     except Exception:
         return None
 
-def _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT):
+def _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT, fast_mode: bool = False):
     """
     严格无未来函数的AI胜率计算：
     - 仅使用当前日期及之前的K线窗口
@@ -299,7 +306,14 @@ def _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT):
             return 50.0
 
         matches = vision.search_similar_patterns(
-            img_path, top_k=10, query_prices=query_prices, max_date=date_str
+            img_path,
+            top_k=10,
+            query_prices=query_prices,
+            max_date=date_str,
+            fast_mode=fast_mode,
+            search_k=600 if fast_mode else None,
+            rerank_with_pixels=not fast_mode,
+            max_price_checks=None if fast_mode else 300,
         )
         factor_result = kline_calc.calculate_hybrid_win_rate(
             matches, query_symbol=symbol, query_date=date_str, query_df=df_hist
@@ -316,7 +330,7 @@ def _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT):
 def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, cost_calc,
                    return_equity=False, return_costs=False, strict_no_future: bool = False,
                    eng=None, PROJECT_ROOT=None, ai_cache: Optional[dict] = None,
-                   progress_cb=None):
+                   progress_cb=None, ai_stride: int = 1, ai_fast_mode: bool = False):
     """回测循环核心逻辑"""
     cash, shares, equity = bt_cap, 0, []
     entry_price = 0.0
@@ -335,6 +349,7 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
     
     if ai_cache is None:
         ai_cache = {}
+    last_ai_win = None
     total_rows = len(df)
     step = max(1, total_rows // 50) if total_rows > 0 else 1
     for i, (_, row) in enumerate(df.iterrows()):
@@ -347,9 +362,15 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
         if strict_no_future:
             if date_str in ai_cache:
                 ai_win = ai_cache[date_str]
+                last_ai_win = ai_win
             else:
-                ai_win = _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT)
-                ai_cache[date_str] = ai_win
+                use_stride = max(1, int(ai_stride)) if ai_stride else 1
+                if use_stride > 1 and last_ai_win is not None and (i % use_stride != 0):
+                    ai_win = last_ai_win
+                else:
+                    ai_win = _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT, fast_mode=ai_fast_mode)
+                    ai_cache[date_str] = ai_win
+                    last_ai_win = ai_win
         else:
             ai_win = vision_map.get((symbol, date_str), 50.0)
         volume = float(row.get('Volume', df['Close'].mean() * 1000000))

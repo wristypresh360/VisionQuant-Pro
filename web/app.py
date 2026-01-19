@@ -40,23 +40,30 @@ def _code_version_key():
     return "|".join([str(os.path.getmtime(p)) if os.path.exists(p) else "0" for p in paths])
 
 def _find_existing_kline_image(symbol: str, date_str: str):
-    img_base = os.path.join(PROJECT_ROOT, "data", "images")
+    symbol = str(symbol).zfill(6)
     date_n = str(date_str).replace("-", "")
-    candidates = [
-        os.path.join(img_base, f"{symbol}_{date_n}.png"),
-        os.path.join(img_base, symbol, f"{symbol}_{date_n}.png"),
-        os.path.join(img_base, symbol, f"{date_n}.png"),
+    img_bases = [
+        os.path.join(PROJECT_ROOT, "data", "images_v2"),
+        os.path.join(PROJECT_ROOT, "data", "images"),
     ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    pattern = os.path.join(img_base, "**", f"*{symbol}*{date_n}*.png")
-    matches = glob.glob(pattern, recursive=True)
-    if matches:
-        return matches[0]
+    for img_base in img_bases:
+        candidates = [
+            os.path.join(img_base, f"{symbol}_{date_n}.png"),
+            os.path.join(img_base, symbol, f"{symbol}_{date_n}.png"),
+            os.path.join(img_base, symbol, f"{date_n}.png"),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        pattern = os.path.join(img_base, "**", f"*{symbol}*{date_n}*.png")
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            return matches[0]
     # 回退：取该股票最新的一张图
-    pattern2 = os.path.join(img_base, "**", f"{symbol}*.png")
-    all_imgs = glob.glob(pattern2, recursive=True)
+    all_imgs = []
+    for img_base in img_bases:
+        pattern2 = os.path.join(img_base, "**", f"{symbol}*.png")
+        all_imgs.extend(glob.glob(pattern2, recursive=True))
     if not all_imgs:
         return None
     # 尝试按日期排序
@@ -339,10 +346,20 @@ if mode == "🔍 单只股票分析":
                 # 动态融合权重：基于各周期的收益分布质量评分
                 try:
                     kline_factor_calc = KLineFactorCalculator(data_loader=eng["loader"])
+                    # 仅用于权重估计，使用快速模式减少耗时
                     scale_matches = {
-                        "daily": eng["vision"].search_similar_patterns(q_p, top_k=10, query_prices=query_prices, max_date=date_str),
-                        "weekly": eng["vision"].search_similar_patterns(q_week, top_k=10, max_date=date_str),
-                        "monthly": eng["vision"].search_similar_patterns(q_month, top_k=10, max_date=date_str),
+                        "daily": eng["vision"].search_similar_patterns(
+                            q_p, top_k=10, query_prices=query_prices, max_date=date_str,
+                            fast_mode=True, search_k=400, rerank_with_pixels=False
+                        ),
+                        "weekly": eng["vision"].search_similar_patterns(
+                            q_week, top_k=10, max_date=date_str,
+                            fast_mode=True, search_k=400, rerank_with_pixels=False
+                        ),
+                        "monthly": eng["vision"].search_similar_patterns(
+                            q_month, top_k=10, max_date=date_str,
+                            fast_mode=True, search_k=400, rerank_with_pixels=False
+                        ),
                     }
                     scale_stats = {
                         k: kline_factor_calc.calculate_return_distribution(v, horizon_days=5, query_date=date_str)
@@ -812,13 +829,33 @@ if mode == "🔍 单只股票分析":
                 key="strict_no_future",
                 help="仅使用当前日期及之前的相似形态，避免未来数据泄漏"
             )
+            if strict_no_future:
+                cbt8, cbt9 = st.columns(2)
+                with cbt8:
+                    ai_stride_val = st.slider(
+                        "AI评估步长(天)",
+                        1, 20,
+                        st.session_state.get("ai_stride", 5),
+                        key="ai_stride",
+                        help="步长越大越快，但精度会下降；设为1表示逐日评估"
+                    )
+                with cbt9:
+                    ai_fast_mode_val = st.checkbox(
+                        "快速AI评估（向量近似）",
+                        value=st.session_state.get("ai_fast_mode", True),
+                        key="ai_fast_mode",
+                        help="跳过DTW/相关性计算，显著加速但精度略降"
+                    )
+            else:
+                ai_stride_val, ai_fast_mode_val = 1, False
 
             if st.button("开始回测", key="backtest_btn"):
                 run_backtest(
                     symbol, bt_start_val, bt_end_val, bt_cap_val, bt_ma_val,
                     bt_stop_val, bt_vision_val, bt_validation_val,
                     wf_train_months_val, wf_test_months_val, eng, PROJECT_ROOT,
-                    enable_stress_test=enable_stress, strict_no_future=strict_no_future
+                    enable_stress_test=enable_stress, strict_no_future=strict_no_future,
+                    ai_stride=ai_stride_val, ai_fast_mode=ai_fast_mode_val
                 )
 
         with tab_fa:

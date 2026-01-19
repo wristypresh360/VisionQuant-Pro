@@ -19,7 +19,10 @@ def create_comparison_plot(query_img_path, search_results, output_path):
     3. 始终显示10个格子（即使部分图片缺失）
     """
     PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    IMG_BASE_DIR = os.path.join(PROJECT_ROOT, "data", "images")
+    IMG_BASE_DIRS = [
+        os.path.join(PROJECT_ROOT, "data", "images_v2"),
+        os.path.join(PROJECT_ROOT, "data", "images"),
+    ]
 
     plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei', 'DejaVu Sans']
     plt.rcParams['axes.unicode_minus'] = False
@@ -31,13 +34,13 @@ def create_comparison_plot(query_img_path, search_results, output_path):
 
     # 1. 左侧大图 (占 2行 x 2列)
     ax_main = fig.add_subplot(gs[:, :2])
-    if os.path.exists(query_img_path):
+    if query_img_path and os.path.exists(query_img_path):
         try:
-            img = Image.open(query_img_path)
-            ax_main.imshow(img)
+            with Image.open(query_img_path) as img:
+                ax_main.imshow(img)
             ax_main.set_title("当前目标形态 (Query)", fontsize=18, color='blue', fontweight='bold')
-        except Exception as e:
-            ax_main.text(0.5, 0.5, f"Query Image\nLoad Error", ha='center', va='center', fontsize=14)
+        except Exception:
+            ax_main.text(0.5, 0.5, "Query Image\nLoad Error", ha='center', va='center', fontsize=14)
     else:
         ax_main.text(0.5, 0.5, "Query Image\nNot Found", ha='center', va='center', fontsize=14)
     ax_main.axis('off')
@@ -58,28 +61,35 @@ def create_comparison_plot(query_img_path, search_results, output_path):
             
             # 尝试多种路径查找图片
             hist_img_path = None
-            possible_paths = [
-                os.path.join(IMG_BASE_DIR, f"{symbol}_{date_str}.png"),  # 直接在images/下
-                os.path.join(IMG_BASE_DIR, symbol, f"{symbol}_{date_str}.png"),  # 在images/symbol/下
-                os.path.join(IMG_BASE_DIR, symbol, f"{date_str}.png"),  # 在images/symbol/下，无前缀
-            ]
-            
-            for path in possible_paths:
-                if os.path.exists(path):
-                    hist_img_path = path
-                    break
-            
-            # 如果还没找到，尝试glob搜索
-            if hist_img_path is None:
-                pattern = os.path.join(IMG_BASE_DIR, "**", f"*{symbol}*{date_str}*.png")
-                matches = glob.glob(pattern, recursive=True)
-                if matches:
-                    hist_img_path = matches[0]
+            # 优先使用结果里自带的路径（来自索引元数据）
+            if res.get("path") and os.path.exists(res.get("path")):
+                hist_img_path = res.get("path")
+            else:
+                for img_base in IMG_BASE_DIRS:
+                    possible_paths = [
+                        os.path.join(img_base, f"{symbol}_{date_str}.png"),
+                        os.path.join(img_base, symbol, f"{symbol}_{date_str}.png"),
+                        os.path.join(img_base, symbol, f"{date_str}.png"),
+                    ]
+                    for path in possible_paths:
+                        if os.path.exists(path):
+                            hist_img_path = path
+                            break
+                    if hist_img_path:
+                        break
+                # 如果还没找到，尝试glob搜索
+                if hist_img_path is None:
+                    for img_base in IMG_BASE_DIRS:
+                        pattern = os.path.join(img_base, "**", f"*{symbol}*{date_str}*.png")
+                        matches = glob.glob(pattern, recursive=True)
+                        if matches:
+                            hist_img_path = matches[0]
+                            break
 
             if hist_img_path and os.path.exists(hist_img_path):
                 try:
-                    img_hist = Image.open(hist_img_path)
-                    ax.imshow(img_hist)
+                    with Image.open(hist_img_path) as img_hist:
+                        ax.imshow(img_hist)
                     
                     # 标题显示相似度和代码
                     score_val = res.get('score', 0)

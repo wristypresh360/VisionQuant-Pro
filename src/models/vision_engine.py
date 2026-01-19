@@ -342,7 +342,9 @@ class VisionEngine:
             return None
 
     def search_similar_patterns(self, target_img_path, top_k=10, query_prices=None,
-                                rerank_with_pixels=True, rerank_top_k=80, max_date: str = None):
+                                rerank_with_pixels=True, rerank_top_k=80, max_date: str = None,
+                                fast_mode: bool = False, search_k: int = None,
+                                max_price_checks: int = None, use_price_features: bool = True):
         """
         【核心改进】DTW主导 + 视觉辅助的混合检索
         
@@ -367,7 +369,13 @@ class VisionEngine:
 
         # === 关键改进1: 大幅扩大粗筛范围（从400→2000）===
         # 因为CNN特征不可靠，需要从更大范围中用DTW精选
-        search_k = max(top_k * 200, 2000)
+        if search_k is None:
+            if fast_mode:
+                search_k = max(top_k * 50, 500)
+            else:
+                search_k = max(top_k * 200, 2000)
+        if fast_mode:
+            use_price_features = False
         D, I = self.index.search(vec, search_k)
 
         candidates = []
@@ -381,7 +389,8 @@ class VisionEngine:
         # 这样才能保证对比图几乎不可能空。
         loader = None
         price_df_cache = {}
-        if query_prices is not None and len(query_prices) == 20:
+        price_checks = 0
+        if use_price_features and query_prices is not None and len(query_prices) == 20:
             try:
                 if self._data_loader is None:
                     from src.data.data_loader import DataLoader
@@ -426,7 +435,7 @@ class VisionEngine:
             feature_sim = None
             match_trend = None
             
-            if loader is not None:
+            if loader is not None and (max_price_checks is None or price_checks < max_price_checks):
                 try:
                     if sym not in price_df_cache:
                         dfp = loader.get_stock_data(sym)
@@ -442,6 +451,7 @@ class VisionEngine:
                         loc = dfp.index.get_loc(current_dt)
                         if loc >= 19:
                             match_prices = dfp.iloc[loc - 19: loc + 1]['Close'].values
+                            price_checks += 1
                             
                             # A. 价格相关性
                             query_norm = (query_prices - query_prices.mean()) / (query_prices.std() + 1e-8)
@@ -496,7 +506,7 @@ class VisionEngine:
                 corr_score = corr_norm if corr_norm is not None else 0.5
                 combined_score = 0.50 * dtw_score + 0.30 * corr_score + 0.15 * feat_score + 0.05 * sim_score
             else:
-                combined_score = sim_score * 0.3  # 无DTW则大幅降权
+                combined_score = sim_score * 0.3 if use_price_features else sim_score
 
             candidates.append({
                 "symbol": sym,

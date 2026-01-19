@@ -137,23 +137,30 @@ def _encode_image_b64(img_path: str):
 
 
 def _find_existing_kline_image(symbol: str, date_str: str):
-    img_base = os.path.join(PROJECT_ROOT, "data", "images")
+    symbol = str(symbol).zfill(6)
     date_n = str(date_str).replace("-", "")
-    candidates = [
-        os.path.join(img_base, f"{symbol}_{date_n}.png"),
-        os.path.join(img_base, symbol, f"{symbol}_{date_n}.png"),
-        os.path.join(img_base, symbol, f"{date_n}.png"),
+    img_bases = [
+        os.path.join(PROJECT_ROOT, "data", "images_v2"),
+        os.path.join(PROJECT_ROOT, "data", "images"),
     ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    pattern = os.path.join(img_base, "**", f"*{symbol}*{date_n}*.png")
-    matches = glob.glob(pattern, recursive=True)
-    if matches:
-        return matches[0]
+    for img_base in img_bases:
+        candidates = [
+            os.path.join(img_base, f"{symbol}_{date_n}.png"),
+            os.path.join(img_base, symbol, f"{symbol}_{date_n}.png"),
+            os.path.join(img_base, symbol, f"{date_n}.png"),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        pattern = os.path.join(img_base, "**", f"*{symbol}*{date_n}*.png")
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            return matches[0]
     # 回退：取该股票最新的一张图
-    pattern2 = os.path.join(img_base, "**", f"{symbol}*.png")
-    all_imgs = glob.glob(pattern2, recursive=True)
+    all_imgs = []
+    for img_base in img_bases:
+        pattern2 = os.path.join(img_base, "**", f"{symbol}*.png")
+        all_imgs.extend(glob.glob(pattern2, recursive=True))
     if not all_imgs:
         return None
     def _extract_date(p):
