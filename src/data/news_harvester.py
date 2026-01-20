@@ -35,7 +35,10 @@ class NewsHarvester:
         if len(self._cache) > self._cache_max:
             self._cache.popitem(last=False)
 
-    def _fetch_eastmoney_news(self, keyword, top_n=5):
+    def _fetch_eastmoney_news(self, keyword, top_n=5, max_retries=3):
+        """
+        工业级优化：添加重试机制和超时控制
+        """
         url = "https://search-api-web.eastmoney.com/search/jsonp"
         callback = f"jQuery{int(time.time() * 1000)}"
         inner_param = {
@@ -63,31 +66,48 @@ class NewsHarvester:
         }
         headers = dict(self.headers)
         headers["referer"] = f"https://so.eastmoney.com/news/s?keyword={keyword}"
-        try:
-            resp = requests.get(url, params=params, headers=headers, timeout=6)
-            if resp.status_code != 200:
+        
+        # 重试机制
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(url, params=params, headers=headers, timeout=4)  # 缩短超时时间
+                if resp.status_code != 200:
+                    if attempt < max_retries - 1:
+                        time.sleep(0.5 * (attempt + 1))  # 指数退避
+                        continue
+                    return []
+                text = resp.text.strip()
+                match = re.search(r"\((\{.*\})\)\s*$", text, re.S)
+                data_json = None
+                if match:
+                    data_json = json.loads(match.group(1))
+                elif text.startswith("{") and text.endswith("}"):
+                    data_json = json.loads(text)
+                if not data_json:
+                    if attempt < max_retries - 1:
+                        continue
+                    return []
+                items = data_json.get("result", {}).get("cmsArticleWebOld", []) or []
+                news_items = []
+                for item in items[:top_n]:
+                    title = str(item.get("title", "")).strip()
+                    title = re.sub(r"</?em>", "", title)
+                    date = str(item.get("date", ""))[:10] or "近期"
+                    media = str(item.get("mediaName", "")).strip() or "东方财富"
+                    if title:
+                        news_items.append(f"- **{date}** ({media}) {title}")
+                return news_items
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
                 return []
-            text = resp.text.strip()
-            match = re.search(r"\((\{.*\})\)\s*$", text, re.S)
-            data_json = None
-            if match:
-                data_json = json.loads(match.group(1))
-            elif text.startswith("{") and text.endswith("}"):
-                data_json = json.loads(text)
-            if not data_json:
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
                 return []
-            items = data_json.get("result", {}).get("cmsArticleWebOld", []) or []
-            news_items = []
-            for item in items[:top_n]:
-                title = str(item.get("title", "")).strip()
-                title = re.sub(r"</?em>", "", title)
-                date = str(item.get("date", ""))[:10] or "近期"
-                media = str(item.get("mediaName", "")).strip() or "东方财富"
-                if title:
-                    news_items.append(f"- **{date}** ({media}) {title}")
-            return news_items
-        except Exception:
-            return []
+        return []
 
     def get_latest_news(self, symbol, top_n=5):
         """
@@ -115,55 +135,71 @@ class NewsHarvester:
             return result
 
         # === 2. 尝试 Google News RSS (国际源，最稳) ===
-        try:
-            query = f"{symbol} 股票"
-            rss_url = f"https://news.google.com/rss/search?q={query}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
-            response = requests.get(rss_url, headers=self.headers, timeout=6)
+        for attempt in range(2):  # 最多重试2次
+            try:
+                query = f"{symbol} 股票"
+                rss_url = f"https://news.google.com/rss/search?q={query}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+                response = requests.get(rss_url, headers=self.headers, timeout=4)  # 缩短超时
 
-            if response.status_code == 200:
-                root = ET.fromstring(response.content)
-                count = 0
-                for item in root.findall('./channel/item'):
-                    if count >= top_n: break
-                    title = item.find('title').text.split(' - ')[0]
-                    pub_date = item.find('pubDate').text
-                    try:
-                        dt = datetime.datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
-                        date_str = dt.strftime("%Y-%m-%d")
-                    except:
-                        date_str = "近期"
+                if response.status_code == 200:
+                    root = ET.fromstring(response.content)
+                    count = 0
+                    for item in root.findall('./channel/item'):
+                        if count >= top_n: break
+                        title = item.find('title').text.split(' - ')[0]
+                        pub_date = item.find('pubDate').text
+                        try:
+                            dt = datetime.datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
+                            date_str = dt.strftime("%Y-%m-%d")
+                        except:
+                            date_str = "近期"
 
-                    news_items.append(f"- **{date_str}** (Google) {title}")
-                    count += 1
+                        news_items.append(f"- **{date_str}** (Google) {title}")
+                        count += 1
 
-                if news_items:
-                    print("✅ [源:Google News] 获取成功")
-                    result = "\n\n".join(news_items)
-                    self._cache_set(cache_key, result)
-                    return result
-        except Exception as e:
-            print(f"❌ Google RSS 异常: {e}")
+                    if news_items:
+                        print("✅ [源:Google News] 获取成功")
+                        result = "\n\n".join(news_items)
+                        self._cache_set(cache_key, result)
+                        return result
+                if attempt < 1:
+                    time.sleep(0.5)
+            except requests.exceptions.Timeout:
+                if attempt < 1:
+                    time.sleep(0.5)
+                    continue
+            except Exception as e:
+                if attempt < 1:
+                    time.sleep(0.5)
+                    continue
+                print(f"❌ Google RSS 异常: {e}")
 
         # === 3. 尝试 Yahoo Finance (最后防线) ===
-        try:
-            yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
-            yf_ticker = yf.Ticker(yf_symbol)
-            yf_news = yf_ticker.news
-            if yf_news:
-                for item in yf_news[:top_n]:
-                    title = item.get('title')
-                    ts = item.get('providerPublishTime')
-                    if title and ts:
-                        date_str = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
-                        news_items.append(f"- **{date_str}** (Yahoo) {title}")
+        for attempt in range(2):  # 最多重试2次
+            try:
+                yf_symbol = f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ"
+                yf_ticker = yf.Ticker(yf_symbol)
+                yf_news = yf_ticker.news
+                if yf_news:
+                    for item in yf_news[:top_n]:
+                        title = item.get('title')
+                        ts = item.get('providerPublishTime')
+                        if title and ts:
+                            date_str = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+                            news_items.append(f"- **{date_str}** (Yahoo) {title}")
 
-                if news_items:
-                    print("✅ [源:Yahoo] 获取成功")
-                    result = "\n\n".join(news_items)
-                    self._cache_set(cache_key, result)
-                    return result
-        except:
-            pass
+                    if news_items:
+                        print("✅ [源:Yahoo] 获取成功")
+                        result = "\n\n".join(news_items)
+                        self._cache_set(cache_key, result)
+                        return result
+                if attempt < 1:
+                    time.sleep(0.5)
+            except Exception as e:
+                if attempt < 1:
+                    time.sleep(0.5)
+                    continue
+                pass
 
         result = "✅ 暂无重大敏感舆情 (多源扫描完成)。"
         self._cache_set(cache_key, result)

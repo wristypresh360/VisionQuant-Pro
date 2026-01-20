@@ -8,6 +8,9 @@ from datetime import datetime
 from typing import Dict, Optional, Tuple
 from src.strategies.transaction_cost import AdvancedTransactionCost
 from src.utils.walk_forward import WalkForwardValidator
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing import cpu_count
+import threading
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -358,6 +361,41 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
     last_ai_win = None
     total_rows = len(df)
     step = max(1, total_rows // 50) if total_rows > 0 else 1
+    
+    # 工业级优化：并行预计算AI胜率（如果启用strict_no_future且需要计算）
+    if strict_no_future and eng and "vision" in eng:
+        # 确定需要计算的日期
+        dates_to_compute = []
+        use_stride = max(1, int(ai_stride)) if ai_stride else 1
+        for i, (_, row) in enumerate(df.iterrows()):
+            date_str = row.name.strftime("%Y%m%d")
+            if date_str not in ai_cache:
+                if use_stride == 1 or i % use_stride == 0:
+                    dates_to_compute.append((i, date_str))
+        
+        # 并行计算AI胜率
+        if dates_to_compute and len(dates_to_compute) > 10:  # 只有需要计算的日期较多时才并行
+            logger.info(f"并行预计算AI胜率: {len(dates_to_compute)}个日期")
+            max_workers = min(cpu_count() * 2, 16, len(dates_to_compute))
+            
+            def compute_ai_win_parallel(args):
+                i, date_str = args
+                try:
+                    return (i, date_str, _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT, fast_mode=ai_fast_mode))
+                except Exception as e:
+                    logger.warning(f"计算AI胜率失败: {date_str}, {e}")
+                    return (i, date_str, 50.0)
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(compute_ai_win_parallel, args): args for args in dates_to_compute}
+                for future in as_completed(futures):
+                    try:
+                        i, date_str, ai_win = future.result()
+                        ai_cache[date_str] = ai_win
+                    except Exception as e:
+                        logger.warning(f"获取AI胜率结果失败: {e}")
+            logger.info(f"AI胜率预计算完成: {len(ai_cache)}个缓存项")
+    
     for i, (_, row) in enumerate(df.iterrows()):
         # 先取价格，再用作缺省值（修复 UnboundLocalError: p）
         p = float(row["Close"])
@@ -374,6 +412,7 @@ def _backtest_loop(df, symbol, bt_cap, bt_ma, bt_stop, bt_vision, vision_map, co
                 if use_stride > 1 and last_ai_win is not None and (i % use_stride != 0):
                     ai_win = last_ai_win
                 else:
+                    # 如果并行预计算失败，回退到串行计算
                     ai_win = _compute_ai_win_strict(symbol, date_str, df, eng, PROJECT_ROOT, fast_mode=ai_fast_mode)
                     ai_cache[date_str] = ai_win
                     last_ai_win = ai_win

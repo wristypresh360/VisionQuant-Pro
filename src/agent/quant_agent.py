@@ -131,18 +131,44 @@ class QuantAgent:
             "roe": fund_data.get('roe', 0),
             "news_summary": str(news_text)[:2000]
         }
-        for attempt in range(3):
+        # 工业级优化：增强重试机制和超时控制
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
             try:
-                return self.chain.invoke(payload)
+                # 设置超时（如果支持）
+                result = self.chain.invoke(payload)
+                # 重置错误状态（成功时）
+                self._last_error = None
+                return result
             except Exception as e:
                 msg = str(e)
                 self._last_error = msg
-                # 连接被重置 -> 尝试重连并重试
-                if "Connection reset by peer" in msg or "503" in msg or "429" in msg:
-                    time.sleep(1.5 * (attempt + 1))
-                    self._init_llm()
+                
+                # 判断是否需要重试
+                should_retry = False
+                if any(keyword in msg.lower() for keyword in [
+                    "connection reset", "503", "429", "timeout", "connection error",
+                    "rate limit", "quota", "service unavailable", "internal error"
+                ]):
+                    should_retry = True
+                
+                if should_retry and attempt < max_retries - 1:
+                    # 指数退避 + 抖动
+                    delay = base_delay * (2 ** attempt) + (time.time() % 1) * 0.5
+                    time.sleep(delay)
+                    # 尝试重新初始化LLM
+                    try:
+                        self._init_llm()
+                    except:
+                        pass
                     continue
-                return self._fallback_result(f"AI 生成中断: {msg[:120]}")
+                else:
+                    # 最后一次尝试失败，返回降级结果
+                    logger.warning(f"AI分析失败 (尝试 {attempt + 1}/{max_retries}): {msg[:100]}")
+                    return self._fallback_result(f"AI 生成中断: {msg[:120]}")
+        
         return self._fallback_result(f"AI 生成中断: {self._last_error or '网络繁忙'}")
 
     def chat(self, user_question, context_str):
