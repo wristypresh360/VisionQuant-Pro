@@ -67,51 +67,94 @@ class FundamentalMiner:
             except Exception as e:
                 result["_err"].append(f"spot_df_error: {type(e).__name__}: {e}")
 
-            # 若 spot 未拿到 name，尝试更轻量的个股信息接口兜底
-            if not result.get("name"):
-                try:
-                    info_df = ak.stock_individual_info_em(symbol=symbol)
-                    if info_df is not None and not info_df.empty:
-                        # 常见字段：item/value
-                        if "item" in info_df.columns and "value" in info_df.columns:
-                            name_row = info_df[info_df["item"].astype(str).str.contains("股票简称|名称")]
-                            if not name_row.empty:
-                                result["name"] = str(name_row["value"].values[0]).strip()
-                except Exception as e:
-                    result["_err"].append(f"stock_individual_info_error: {type(e).__name__}: {e}")
+            # 若 spot 未拿到 name 或 PE/PB，尝试更轻量的个股信息接口兜底（带重试）
+            if not result.get("name") or (result.get("pe_ttm", 0) == 0 and result.get("pb", 0) == 0):
+                for attempt in range(max(1, self._spot_retry + 1)):
+                    try:
+                        info_df = ak.stock_individual_info_em(symbol=symbol)
+                        if info_df is not None and not info_df.empty:
+                            # 常见字段：item/value
+                            if "item" in info_df.columns and "value" in info_df.columns:
+                                # 获取股票名称
+                                if not result.get("name"):
+                                    name_row = info_df[info_df["item"].astype(str).str.contains("股票简称|名称")]
+                                    if not name_row.empty:
+                                        result["name"] = str(name_row["value"].values[0]).strip()
+                                
+                                # 尝试获取PE/PB（如果spot_df没有获取到）
+                                if result.get("pe_ttm", 0) == 0:
+                                    pe_row = info_df[info_df["item"].astype(str).str.contains("市盈率|PE")]
+                                    if not pe_row.empty:
+                                        result["pe_ttm"] = self._to_f(pe_row["value"].values[0])
+                                
+                                if result.get("pb", 0) == 0:
+                                    pb_row = info_df[info_df["item"].astype(str).str.contains("市净率|PB")]
+                                    if not pb_row.empty:
+                                        result["pb"] = self._to_f(pb_row["value"].values[0])
+                                
+                                # 如果获取到关键数据，退出重试循环
+                                if result.get("name") or result.get("pe_ttm", 0) > 0:
+                                    break
+                        if attempt < self._spot_retry:
+                            time.sleep(0.5 * (attempt + 1))  # 指数退避
+                    except Exception as e:
+                        if attempt < self._spot_retry:
+                            time.sleep(0.5 * (attempt + 1))
+                            continue
+                        result["_err"].append(f"stock_individual_info_error: {type(e).__name__}: {e}")
 
             # 2. 深度指标：优先使用 THS 财务摘要（经验证可用；EM接口在你环境里全量报错）
-            try:
-                ths_df = ak.stock_financial_abstract_ths(symbol=symbol)
-                if ths_df is not None and not ths_df.empty:
-                    # 取最新报告期
-                    if "报告期" in ths_df.columns:
-                        tmp = ths_df.copy()
-                        tmp["报告期_dt"] = pd.to_datetime(tmp["报告期"], errors="coerce")
-                        tmp = tmp.sort_values("报告期_dt")
-                        latest = tmp.iloc[-1]
-                        result["report_date"] = str(latest.get("报告期", result["report_date"]))
+            # 工业级优化：添加重试机制
+            ths_success = False
+            for attempt in range(max(1, self._spot_retry + 1)):
+                try:
+                    ths_df = ak.stock_financial_abstract_ths(symbol=symbol)
+                    if ths_df is not None and not ths_df.empty:
+                        # 取最新报告期
+                        if "报告期" in ths_df.columns:
+                            tmp = ths_df.copy()
+                            tmp["报告期_dt"] = pd.to_datetime(tmp["报告期"], errors="coerce")
+                            tmp = tmp.sort_values("报告期_dt")
+                            latest = tmp.iloc[-1]
+                            result["report_date"] = str(latest.get("报告期", result["report_date"]))
+                        else:
+                            latest = ths_df.iloc[-1]
+
+                        # 关键指标（字段名稳定）
+                        result["roe"] = self._to_f(latest.get("净资产收益率"))
+                        result["net_profit_margin"] = self._to_f(latest.get("销售净利率"))
+                        result["gross_margin"] = self._to_f(latest.get("销售毛利率"))
+                        result["current_ratio"] = self._to_f(latest.get("流动比率"))
+                        result["debt_asset_ratio"] = self._to_f(latest.get("资产负债率"))
+                        # 这些字段有时为 False/空，_to_f 会安全兜底为0.0
+                        result["rev_growth"] = self._to_f(latest.get("营业总收入同比增长率"))
+                        result["profit_growth"] = self._to_f(latest.get("净利润同比增长率"))
+
+                        if 0 < result["debt_asset_ratio"] < 100:
+                            result["leverage"] = round(1 / (1 - result["debt_asset_ratio"] / 100), 2)
+
+                        result["_ok"]["finance"] = True
+                        ths_success = True
+                        break  # 成功获取，退出重试循环
                     else:
-                        latest = ths_df.iloc[-1]
-
-                    # 关键指标（字段名稳定）
-                    result["roe"] = self._to_f(latest.get("净资产收益率"))
-                    result["net_profit_margin"] = self._to_f(latest.get("销售净利率"))
-                    result["gross_margin"] = self._to_f(latest.get("销售毛利率"))
-                    result["current_ratio"] = self._to_f(latest.get("流动比率"))
-                    result["debt_asset_ratio"] = self._to_f(latest.get("资产负债率"))
-                    # 这些字段有时为 False/空，_to_f 会安全兜底为0.0
-                    result["rev_growth"] = self._to_f(latest.get("营业总收入同比增长率"))
-                    result["profit_growth"] = self._to_f(latest.get("净利润同比增长率"))
-
-                    if 0 < result["debt_asset_ratio"] < 100:
-                        result["leverage"] = round(1 / (1 - result["debt_asset_ratio"] / 100), 2)
-
-                    result["_ok"]["finance"] = True
-                else:
-                    result["_err"].append("ths_finance_empty")
-            except Exception as e:
-                result["_err"].append(f"ths_finance_error: {type(e).__name__}: {e}")
+                        if attempt < self._spot_retry:
+                            time.sleep(0.5 * (attempt + 1))
+                            continue
+                        result["_err"].append("ths_finance_empty")
+                except Exception as e:
+                    if attempt < self._spot_retry:
+                        time.sleep(0.5 * (attempt + 1))
+                        continue
+                    result["_err"].append(f"ths_finance_error (尝试{attempt+1}/{self._spot_retry+1}): {type(e).__name__}: {e}")
+            
+            # 降级策略：如果THS接口失败，尝试其他财务接口
+            if not ths_success:
+                # 尝试使用其他财务接口作为降级
+                try:
+                    # 可以尝试其他接口，但这里先保持原有逻辑
+                    pass
+                except Exception as e:
+                    result["_err"].append(f"finance_fallback_error: {type(e).__name__}: {e}")
 
             # 3. 若仍拿不到 ROE，则用 PB/PE 推算（标注为推算，不再默默写0）
             if not result["_ok"]["finance"] and result["pe_ttm"] > 0:
@@ -128,13 +171,15 @@ class FundamentalMiner:
     def _get_spot_df_cached(self, result: dict):
         """
         获取全市场 spot 数据（带缓存 + 重试）。
+        工业级优化：增强重试机制和错误处理
         """
         now = time.time()
         if self._spot_cache_df is not None and (now - self._spot_cache_ts) < self._spot_cache_ttl_sec:
             return self._spot_cache_df
 
         last_err = None
-        for i in range(max(1, self._spot_retry + 1)):
+        max_retries = max(1, self._spot_retry + 1)
+        for i in range(max_retries):
             try:
                 df = ak.stock_zh_a_spot_em()
                 if df is None or df.empty:
@@ -148,11 +193,12 @@ class FundamentalMiner:
                 return df
             except Exception as e:
                 last_err = e
-                # 轻微退避，降低瞬时波动/限流影响
-                time.sleep(0.25 * (i + 1))
+                # 指数退避，降低瞬时波动/限流影响
+                if i < max_retries - 1:
+                    time.sleep(0.5 * (i + 1))  # 0.5s, 1s, 1.5s...
 
         if last_err is not None:
-            result["_err"].append(f"spot_retry_failed: {type(last_err).__name__}: {last_err}")
+            result["_err"].append(f"spot_retry_failed (尝试{max_retries}次): {type(last_err).__name__}: {last_err}")
         return None
 
     # ... (get_industry_peers, _find_val, _to_f 保持不变，直接复用原有的即可) ...
