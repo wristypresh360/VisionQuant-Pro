@@ -1,557 +1,972 @@
-
 <div align="center">
 
-**AI驱动的K线形态智能投资系统 | AI-Powered K-Line Pattern Investment System**
+**AI驱动的K线形态智能投研系统 | AI-Powered K-Line Pattern Research System**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/panyisheng095-ux/VisionQuant-Pro?style=social)](https://github.com/panyisheng095-ux/VisionQuant-Pro)
 
-*K线视觉学习 | Top10历史形态对比 | 多因子评分 | 智能仓位建议 | 因子有效性分析*
+*K线视觉学习 | Top10历史形态对比 | 多因子评分 | 因子有效性分析 | 回测与组合优化 | 工业级性能与鲁棒性*
 
 </div>
 
 ---
 
-## 📋 目录
-
-- [项目概述](#项目概述)
-- [核心创新：Magic Moment](#核心创新magic-moment)
-- [系统架构](#系统架构)
-- [核心功能](#核心功能)
-- [技术实现](#技术实现)
-- [理论基础](#理论基础)
-- [快速开始](#快速开始)
-- [版本历史](#版本历史)
-- [引用与致谢](#引用与致谢)
+**语言**: [中文](#readme-zh) | [English](#readme-en)
 
 ---
 
-## 项目概述
+<a id="readme-zh"></a>
+# README（中文完整版）
 
-### 研究背景
+> 目标：构建“工业级”量化投研系统，强调**性能、鲁棒性、可解释性、可复现性**。该README覆盖项目原理、全流程设计、模块细节与全部关键优化路径。
 
-传统量化投资主要依赖数值特征（如PE、ROE、技术指标），而忽略了K线图本身蕴含的丰富视觉信息。技术分析虽然广泛使用，但依赖人工识别，主观性强且难以量化。VisionQuant-Pro首次将**深度学习视觉学习**与**量化投资**深度融合，通过无监督学习从40万张历史K线图中自动提取形态特征，实现"让AI看懂K线图"。
-
-### 核心价值
-
-1. **可解释性**：Top10历史形态对比，让用户"亲眼看到"历史上相似形态的真实结果
-2. **工业落地**：完整的因子有效性分析框架，支持动态权重调整和因子失效检测
-3. **学术创新**：多理论融合（行为金融学+技术分析+市场微观结构+机器学习）
-
-### 项目定位
-
-**基于K线学习因子（视觉形态）的智能投研助手**，主因子为K线视觉学习，辅助因子为基本面和技术面（动态降权）。核心目标是“可解释、可落地、可复盘”，让使用者清楚知道每一步判断的来龙去脉。
-
----
-
-## 🔥 最新更新（2026-01）
-
-- **视觉检索更“像”**：适配FAISS内积索引的相似度映射 + 像素级重排兜底，Top10更贴近肉眼形态
-- **查询对齐索引分布**：优先使用已有历史K线图作为查询图，减少风格偏移
-- **行业对比更稳**：缓存全市场spot + 多层兜底逻辑，弱化外部接口波动
-- **批量→单只更丝滑**：跳转时同步侧边栏输入与模块状态
-- **多指标相似度合力**：Embedding + 像素/边缘 + 价格形态相关，多路信号融合排序
-- **核心升级(DTW)**：视觉引擎全面升级为**DTW主导 + 趋势约束**检索，解决"形似神不似"痛点。
-- **工业化加固**：财务数据抓取多源容错、批量分析增加异常保护、Web界面1:1迁移FastAPI准备中。
-
----
-
-## 核心创新：Magic Moment
-
-### 💡 想法是如何诞生的？
-
-#### 问题1：为什么是K线图？
-
-**观察**：技术分析在市场中广泛使用，说明投资者确实依赖形态识别做决策。但传统方法依赖人工经验，难以量化。
-
-**灵感**：既然CNN能识别猫狗，为什么不能识别K线形态？K线图本质上是二维图像，包含丰富的空间信息（如头肩顶、双底等）。
-
-#### 问题2：为什么是无监督学习？
-
-**观察**：标注40万张K线图几乎不可能，且不同形态的定义主观性强。
-
-**灵感**：自编码器（Autoencoder）可以无监督学习图像的潜在表示，通过重建误差学习特征。相似形态应该有相似的特征向量。
-
-#### 问题3：为什么是Top10对比而不是直接预测？
-
-**观察**：用户不信任"黑盒"预测，需要可解释性。
-
-**灵感**：与其让AI说"我预测涨"，不如让AI说"历史上10个最相似的形态，7个涨了"。这样用户可以看到：
-- 相似形态的K线图
-- 后续真实走势
-- 统计胜率
-
-**这就是Magic Moment**：将"预测"转化为"历史参考"，既保持了AI的智能，又提供了人类可理解的解释。
-
-#### 问题4：如何证明因子有效性？
-
-**观察**：简单的"收益率>0"胜率计算太粗糙，无法证明因子在何时、为何有效。
-
-**灵感**：借鉴量化因子研究的方法论：
-- Rolling IC/Sharpe分析
-- Regime识别（牛市/熊市/震荡）
-- 因子衰减分析
-- 拥挤交易检测
-- 风险补偿分析
-
-**Magic Moment 2**：将"K线学习"包装成"量化因子"，用专业的因子研究框架证明其有效性。
-
-#### 问题5：如何应对因子失效？
-
-**观察**：任何因子都可能失效，需要动态调整。
-
-**灵感**：根据市场Regime和因子IC动态调整权重：
-- 牛市：K线因子权重高（60%）
-- 熊市：降低K线因子权重（40%），增加基本面权重
-- 因子IC下降：自动降权
-
-**Magic Moment 3**：让系统"自适应"，而不是"固定规则"。
-
-### 🎯 核心设计哲学
-
-1. **透明胜过准确**：宁可准确度略低，也要让用户理解AI的判断依据
-2. **历史胜过预测**：用历史数据说话，而不是"AI预测"
-3. **因子胜过模型**：将K线学习包装成因子，用因子研究框架证明有效性
-4. **动态胜过静态**：根据市场环境动态调整，而不是固定规则
+## 目录（中文）
+- [项目定位与目标](#zh-overview)
+- [科学背景与理论基础](#zh-theory)
+- [设计哲学与Magic Moment](#zh-philosophy)
+- [系统架构总览](#zh-architecture)
+- [数据工程与质量控制](#zh-data)
+- [K线图像与多尺度生成](#zh-images)
+- [视觉特征学习：AttentionCAE/QuantCAE/SimCLR](#zh-model)
+- [索引与元数据：FAISS与路径体系](#zh-index)
+- [相似度检索与DTW主导重排](#zh-search)
+- [多尺度检索融合](#zh-multiscale)
+- [Top10可解释性输出](#zh-top10)
+- [K线学习因子与Triple Barrier标签](#zh-factor)
+- [因子有效性分析框架](#zh-factor-analysis)
+- [回测系统与严格无未来函数](#zh-backtest)
+- [组合构建与风险约束](#zh-portfolio)
+- [舆情与AI Agent稳定性设计](#zh-agent)
+- [性能优化清单（工业级）](#zh-optimizations)
+- [鲁棒性与容错策略](#zh-robustness)
+- [配置与环境变量](#zh-config)
+- [项目结构与模块索引](#zh-structure)
+- [快速开始](#zh-quickstart)
+- [完整数据流水线与脚本](#zh-pipeline)
+- [API服务（FastAPI）](#zh-api)
+- [版本历史与路线](#zh-history)
+- [风险提示与许可证](#zh-risk)
+- [引用与致谢](#zh-reference)
 
 ---
 
-## 系统架构
+<a id="zh-overview"></a>
+## 项目定位与目标
+
+**VisionQuant-Pro** 是一个以**K线视觉形态学习**为核心的量化投研系统，核心思想是：
+- **用视觉模型理解K线图形态**，把“形态直觉”转化为**可量化因子**。
+- 用“**历史相似Top10形态**”替代黑盒预测，强调**可解释与可复盘**。
+- 通过**因子有效性分析+回测体系**，实现策略的**科学验证与工业落地**。
+
+核心目标：
+- **性能**：百万级样本检索保持可用响应速度，回测/因子分析有可解释的时间复杂度。
+- **鲁棒性**：多源数据与网络接口具备退路与容错。
+- **准确性**：DTW与价格形态约束减少“形似神不似”。
+- **可解释性**：Top10历史形态+统计胜率+因子曲线共同解释结论。
+
+---
+
+<a id="zh-theory"></a>
+## 科学背景与理论基础
+
+**多学科融合**支撑系统设计与评价指标：
+- **行为金融学**：代表性启发、锚定效应、羊群效应解释“形态复现”。
+- **技术分析理论**：形态识别、趋势延续、支撑阻力的可视化载体。
+- **市场微观结构**：流动性、订单流、信息扩散解释“形态后续走势”。
+- **机器学习理论**：无监督学习（CAE）提取隐变量，形成可检索向量空间。
+- **量化因子研究方法**：IC/Sharpe/Regime/Decay作为科学评估框架。
+
+推荐补充阅读：`docs/theoretical_foundation.md`。
+
+---
+
+<a id="zh-philosophy"></a>
+## 设计哲学与Magic Moment
+
+**Magic Moment 1：把“预测”变成“历史证据”**
+- 传统模型告诉你“会涨”；VisionQuant-Pro告诉你“历史上最像的10个形态中，有7个上涨”。
+- 解释链条变清晰，信任成本显著降低。
+
+**Magic Moment 2：把“形态”变成“因子”**
+- 视觉形态本质上是一类隐含因子，必须经过IC/Sharpe/Decay框架验证有效性。
+
+**Magic Moment 3：动态权重与因子失效检测**
+- 市场结构在变化，因子需要动态调权与失效识别。
+
+设计原则：
+- 透明胜过单点准确（可解释是工业落地第一要义）
+- 历史胜过主观预测（模型输出必须可回溯）
+- 因子胜过模型（用因子研究标准约束模型）
+- 动态胜过静态（自适应与失效检测）
+
+---
+
+<a id="zh-architecture"></a>
+## 系统架构总览
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    VisionQuant-Pro v2.0                      │
-│               K线学习因子智能投研系统                          │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-   数据层                模型层                  策略层
-        │                     │                     │
-┌───────┴───────┐   ┌─────────┴─────────┐   ┌──────┴──────┐
-│ 数据源抽象层    │   │  AttentionCAE     │   │ 因子有效性   │
-│ - akshare     │   │  (视觉特征提取)     │   │ 分析框架     │
-│ - 聚宽/米筐    │   │  - 512/1024/2048维 │   │ - IC/Sharpe  │
-│ - 数据质量检查  │   │  - 多尺度支持       │   │ - Regime识别 │
-└───────┬───────┘   │  - SimCLR对比学习  │   │ - 衰减分析   │
-        │           └─────────┬─────────┘   │ - 拥挤检测   │
-        │                     │             │ - 风险补偿   │
-        │           ┌─────────┴─────────┐   └──────┬──────┘
-        │           │  FAISS 相似度检索  │          │
-        │           │  (40万K线图索引)   │          │
-        │           └─────────┬─────────┘          │
-        │                     │                     │
-        └─────────────────────┼─────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │  Top10历史形态对比  │
-                    │  (核心卖点)        │
-                    └─────────┬─────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │  V+F+Q多因子评分  │
-                    │  (动态权重)      │
-                    └─────────┬─────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    │  投资建议+仓位配置 │
-                    └───────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                        VisionQuant-Pro                        │
+│                AI K线形态学习 + 工业级投研系统                   │
+└──────────────────────────────────────────────────────────────┘
+           │
+           ├── 数据层 (Data)
+           │   ├─ DataLoader (多数据源/缓存/质量检查)
+           │   ├─ K线图像生成 (日/周/月，多尺度)
+           │   └─ NewsHarvester / FundamentalMiner
+           │
+           ├── 模型层 (Model)
+           │   ├─ AttentionCAE / QuantCAE
+           │   ├─ SimCLR对比学习 (可选增强)
+           │   └─ 特征向量化 + L2归一化
+           │
+           ├── 检索层 (Retrieval)
+           │   ├─ FAISS索引 (向量召回)
+           │   ├─ DTW主导重排 + 价格相关性
+           │   ├─ 像素/边缘相似度轻量重排
+           │   └─ 多尺度融合 (日/周/月)
+           │
+           ├── 因子层 (Factor)
+           │   ├─ Triple Barrier标签系统
+           │   ├─ 混合胜率 (TB 70% + 传统 30%)
+           │   └─ 因子有效性分析 (IC/Sharpe/Decay)
+           │
+           ├── 策略层 (Strategy)
+           │   ├─ 回测引擎 (严格无未来函数)
+           │   ├─ Walk-Forward验证
+           │   └─ 组合优化 (Markowitz/Black-Litterman)
+           │
+           └── 展示层 (UI/API)
+               ├─ Streamlit Web
+               └─ FastAPI 接口
 ```
 
 ---
 
-## 核心功能
+<a id="zh-data"></a>
+## 数据工程与质量控制
 
-https://github.com/user-attachments/assets/c13a0d82-1063-4dde-9e07-289fb1d64ac0
+### 1) 数据源抽象与切换
+- `DataLoader` 统一访问多数据源：`AkshareDataSource`、`JQDataAdapter`、`RQDataAdapter`。
+- 主数据源不可用时自动回退到 AkShare。
 
-### 1. Top10历史形态对比（核心卖点）
+### 2) 数据质量检查（DataQualityChecker）
+- 检查列完整性（Open/High/Low/Close/Volume）
+- 检查缺失值、OHLC一致性、高低价格合理性、极端波动、成交量异常、时间连续性等
+- 输出质量分数与诊断报告
 
-**功能描述**：输入股票代码，系统在40万张历史K线图中搜索最相似的10个形态，展示其后续真实走势。相似度得分经过校准（距离→相似度），并支持相关性增强。
+### 3) 多级缓存
+- **磁盘缓存**：`data/raw/*.csv`
+- **内存LRU缓存**：避免重复I/O（`mem_cache_max`可配置，FastAPI默认128）
+- **局部增量更新**：当请求区间超出本地缓存时，仅补齐缺失区间
 
-**价值**：
-- 直观了解"这种形态历史上怎么走"
-- 用历史数据说话，增强投资信心
-- 完全透明，没有黑盒
-
-**示例输出**：
-```
-当前形态: 600519 (贵州茅台)
-         ↓
-Top1相似: [K线图] → 后续+8.5% (2023-05-15)
-Top2相似: [K线图] → 后续+12.3% (2022-11-08)
-...
-Top10相似: [K线图] → 后续-2.1% (2021-08-20)
-
-统计结果:
-- 胜率: 70% (10个中7个上涨)
-- 平均收益: +6.2%
-- 最大回撤: -3.1%
-```
-
-### 2. 多因子评分系统（V+F+Q）
-
-**评分公式**：
-```
-总分 = V(视觉形态) × W_v + F(财务基本面) × W_f + Q(量化技术) × W_q
-```
-
-**动态权重**（根据市场Regime调整）：
-- 牛市：W_v=0.60, W_f=0.20, W_q=0.20
-- 熊市：W_v=0.40, W_f=0.40, W_q=0.20
-- 震荡：W_v=0.50, W_f=0.30, W_q=0.20
-
-**评分标准**：
-- ≥8分 → 强烈买入
-- 7分 → 买入
-- 5-6分 → 观望
-- <5分 → 卖出/回避
-
-### 3. 因子有效性分析框架
-
-**功能模块**：
-1. **Rolling IC/Sharpe分析**：评估因子预测能力的稳定性
-2. **Regime识别**：识别牛市/熊市/震荡市场
-3. **因子衰减分析**：判断因子何时失效
-4. **拥挤交易检测**：识别因子暴露度集中度
-5. **风险补偿分析**：评估因子收益与风险的关系
-6. **行业分层分析**：分析因子在不同行业的表现
-
-### 4. 分层回测系统
-
-**功能**：
-- 按市值分层（大/中/小盘）
-- 按行业分层
-- 组合分层（市值×行业）
-- Walk-Forward验证（可选）
-- Stress Testing（历史危机 + 样本内压力窗口）
-- A股约束（涨跌停/停牌不交易）
-
-### 5. 组合构建与仓位设计
-
-**组合优化**：
-- Black–Litterman 融合观点（视觉因子作为“观点输入”）
-- 组合结构：核心 + 备选增强（规则放宽，保证中小样本也能输出可用组合）
-- 仓位约束：最小/最大仓位、最大持仓数
-
-**输出**：
-- 权重饼图、评分对比、胜率 vs 预期收益散点
-- 单只股票一键跳转至深度分析
-
-### 6. 动态权重管理
-
-**功能**：
-- 根据市场Regime自动调整因子权重
-- 根据因子IC动态调整
-- 因子失效检测和降权处理
+### 4) 日期与范围控制
+- 默认起始日期为 `20100101`，确保历史覆盖（可配置）
+- 请求范围更早或更晚时，自动“向前/向后补齐”数据
 
 ---
 
-## 技术实现
+<a id="zh-images"></a>
+## K线图像与多尺度生成
 
-### 1. AttentionCAE - 带注意力机制的卷积自编码器
+### 1) 图像生成
+- `scripts/build_kline_image_dataset.py`：批量生成K线图像数据集
+- 支持参数：起止日期、stride（步长）、目标图片数量、进度恢复
+- 输出目录结构：`data/images/` 或 `data/images_v2/`
 
-**架构**：
-- CNN Encoder: 224×224×3 → 14×14×256
-- Multi-Head Self-Attention: 8头，捕捉长距离依赖
-- Latent Projection: 256 → 1024/2048维
-- CNN Decoder: 重建图像
+### 2) 多尺度图像
+- `MultiScaleChartGenerator` 支持日线/周线/月线
+- 统一样式输出（红涨绿跌、隐藏坐标轴）
+- 多尺度图像用于多尺度检索融合
 
-**特点**：
-- 支持512/1024/2048维特征
-- 支持多尺度K线图（日线/周线/月线）
-- SimCLR对比学习增强
+### 3) 关键参数
+- lookback/window：常用于20日或更长窗口（由脚本/配置决定）
+- image_size：默认 `224×224`
 
-### 2. FAISS - 毫秒级相似度检索
+---
 
-**数据规模**：
-- 40万张K线图
-- 特征向量：~1.6GB (mmap)
-- FAISS索引：~1.6GB
+<a id="zh-model"></a>
+## 视觉特征学习：AttentionCAE / QuantCAE / SimCLR
 
-**性能**：
-- Top10检索：<10ms
-- 支持GPU加速
+### 1) AttentionCAE（核心模型）
+- 结构：CNN Encoder + 多头自注意力 + 低维潜空间 + Decoder
+- 目标：重建损失最小化 + 保留形态信息
+- 特征输出：`encode()` 返回 **L2归一化向量**
+- 注意力权重可视化（解释形态关注区域）
 
-### 3. Triple Barrier标签系统
+### 2) QuantCAE（回退模型）
+- 当 AttentionCAE 权重不可用时自动回退
+- `encode()` 输出高维向量，采用池化降维
 
-**定义**：
-- 止盈线：+5%
-- 止损线：-3%
+### 3) SimCLR对比学习（可选）
+- `src/models/simclr_trainer.py` 支持对比学习增强表征
+
+### 4) 训练脚本
+- `scripts/train_attention_cae.py`
+- `scripts/train_multi_scale.py`
+
+---
+
+<a id="zh-index"></a>
+## 索引与元数据：FAISS与路径体系
+
+### 1) 索引文件
+- AttentionCAE 索引优先：`data/indices/cae_faiss_attention.bin`
+- 备选索引：`data/indices/cae_faiss.bin`
+
+### 2) 元数据文件
+- `meta_data_attention.csv` / `meta_data.csv`
+- 记录 `symbol, date, path`，用于快速映射图像
+
+### 3) 索引-模型对齐
+- 索引模式与模型模式不一致时自动切换
+
+### 4) 高性能元数据加载
+- CSV读取使用 `engine='c'` + `low_memory=False`
+
+### 5) 内存路径索引
+- `(symbol, date) -> path` 的内存哈希表
+- 避免递归 `glob` 导致的巨量I/O
+
+---
+
+<a id="zh-search"></a>
+## 相似度检索与DTW主导重排
+
+### 1) 检索流水线
+1. 图像 → 向量（L2归一化）
+2. FAISS粗筛候选（`search_k`）
+3. 对候选进行 DTW / 相关性 / 形态特征重排
+4. 最终输出 Top-K
+
+### 2) DTW（Dynamic Time Warping）
+- 使用 Sakoe-Chiba 带约束加速（窗口=5）
+- 时间复杂度从 `O(n²)` 降到 `O(n·window)`
+
+### 3) 形态特征向量（8维）
+- 方向、涨跌幅、波动率、最高/最低点位置、头/中/尾三段趋势
+
+### 4) 综合评分（核心逻辑）
+- 若有价格序列：
+```
+combined_score = 0.50*dtw_sim + 0.30*corr + 0.15*feat_sim + 0.05*visual_sim
+```
+- 若无价格序列：回退到纯视觉相似度
+
+### 5) 趋势约束 + 时间隔离
+- 查询趋势与候选趋势必须方向一致
+- 同一股票相邻日期隔离，减少“连片”偏差
+- `max_date` 控制严格无未来函数
+
+### 6) 快速模式（fast_mode）
+- 降低候选数量与价格计算开销
+- 因子分析/回测场景下加速
+
+---
+
+<a id="zh-multiscale"></a>
+## 多尺度检索融合
+
+- 日/周/月分别检索后加权融合（默认权重：0.6/0.3/0.1）
+- 通过 `(symbol, date)` 融合多尺度结果
+- 保留元数据路径，避免重复查找
+- 支持像素/边缘重排提升“肉眼相似”程度
+
+---
+
+<a id="zh-top10"></a>
+## Top10可解释性输出
+
+- `src/utils/visualizer.py` 绘制 “1张查询 + 10张相似” 对比图
+- 支持路径优先、目录兜底、glob 兜底
+- 输出信息包含：相似度、相关性、日期、股票代码
+
+---
+
+<a id="zh-factor"></a>
+## K线学习因子与Triple Barrier标签
+
+### 1) Triple Barrier 标签
+- 上边界：+5%
+- 下边界：-3%
 - 最大持有期：20天
+- 标签定义：1(止盈)、0(超时)、-1(止损)
 
-**存储**：
-- HDF5格式，快速查询
-- 支持批量计算和增量更新
+### 2) 混合胜率
+```
+Hybrid Win Rate = 0.7 * TB_WinRate + 0.3 * Traditional_WinRate
+```
 
-### 4. 因子研究框架
-
-**模块**：
-- `src/factor_analysis/`: IC分析、Regime识别、衰减分析等
-- `src/factor_research/`: 行为偏差、信息扩散、相关性分析等
-- `src/backtest/`: 分层回测、Stress Testing
-
----
-
-## 理论基础
-
-### 多理论融合框架
-
-1. **行为金融学**
-   - 代表性启发：投资者基于相似形态做决策
-   - 锚定偏差：K线形态作为价格锚点
-   - 羊群效应：相似形态触发集体行为
-
-2. **技术分析理论**
-   - 形态识别：经典技术分析的基础
-   - 支撑阻力：K线形态反映关键价位
-   - 趋势延续：相似形态往往延续趋势
-
-3. **市场微观结构理论**
-   - 订单流与价格形成
-   - 流动性影响
-   - 信息扩散
-
-4. **机器学习理论**
-   - 无监督学习：CAE学习K线形态的潜在表示
-   - 相似度匹配：FAISS实现高效检索
-   - 迁移学习：历史形态知识迁移到新场景
-
-详见：[理论基础文档](docs/theoretical_foundation.md)
+### 3) 时间衰减与收益分布
+- 支持收益分布统计（均值/分位数/CVaR/偏度/峰度）
+- 可结合市场Regime进行更稳健解释
 
 ---
 
+<a id="zh-factor-analysis"></a>
+## 因子有效性分析框架
+
+核心输出：
+- Rolling IC / IC衰减
+- Sharpe 曲线
+- Regime 识别（牛/熊/震荡）
+- 因子失效检测（CUSUM/拐点）
+- 多持有期IC矩阵
+
+**工业级优化：**
+- 600样本保持不变，但使用 `ThreadPoolExecutor` 并行计算
+- 自适应步长采样（在保持样本量的前提下降低计算负担）
+- 快速模式检索 + 像素重排关闭 + 限制价格相关性计算
+- 失败点自动回退到“自匹配窗口”
+- 进度条与诊断指标（成功/失败计数）
+
+---
+
+<a id="zh-backtest"></a>
+## 回测系统与严格无未来函数
+
+### 1) 回测模式
+- 简单回测
+- Walk-Forward验证
+- Stress Testing
+
+### 2) 严格无未来函数
+- `max_date` 控制匹配只使用历史数据
+- AI胜率严格按当期计算
+
+### 3) 工业级速度优化
+- AI胜率批量并行预计算
+- `ai_stride` 控制AI计算频率
+- `ai_fast_mode` 降低检索开销
+
+### 4) 交易成本与A股约束
+- 高级交易成本模型：手续费+滑点+市场冲击+机会成本
+- 涨跌停、停牌、T+1约束
+- 多基线对比与统计显著性检验
+
+---
+
+<a id="zh-portfolio"></a>
+## 组合构建与风险约束
+
+- Black-Litterman + Markowitz优化
+- 支持CVaR与最大回撤约束
+- 核心/增强双层组合结构
+- 最小/最大仓位约束与持仓数量限制
+
+---
+
+<a id="zh-agent"></a>
+## 舆情与AI Agent稳定性设计
+
+### 1) NewsHarvester（舆情）
+- 东方财富JSONP稳健解析
+- Google News RSS + Yahoo Finance 兜底
+- 请求超时缩短 + 重试 + 缓存（TTL=600s）
+
+### 2) QuantAgent（AI Agent）
+- 多模型候选自动回退（gemini-2.5-pro → 2.0-flash → 1.5-pro...）
+- `transport="rest"` 增强稳定性
+- 指数退避重试 + 异常兜底结果
+
+---
+
+<a id="zh-optimizations"></a>
+## 性能优化清单（工业级）
+
+**I/O层优化**
+- 图像路径建立内存索引（避免递归glob）
+- 元数据CSV加载使用C引擎
+- DataLoader内存LRU缓存减少磁盘读取
+
+**计算层优化**
+- DTW带窗口约束降复杂度
+- 检索过程中早停（高质量候选足够则终止）
+- fast_mode降低复杂度（关闭价格相关、减少search_k）
+- 像素/边缘重排缓存（最多500条）
+
+**并行化优化**
+- 因子分析使用线程池并行
+- 严格无未来回测预计算AI胜率
+
+**启动与运行优化**
+- 视觉索引延迟加载（第一次检索时加载）
+- FastAPI/Streamlit单例引擎复用
+
+---
+
+<a id="zh-robustness"></a>
+## 鲁棒性与容错策略
+
+- 数据源失败自动回退（AkShare兜底）
+- 图像路径缺失时就近日期回退
+- 新闻获取失败自动切源 + 缓存兜底
+- LLM连接失败返回降级结果
+- 回测/因子分析失败时给出诊断信息
+
+---
+
+<a id="zh-config"></a>
+## 配置与环境变量
+
+配置文件：`config/config.yaml`
+
+关键字段：
+- `data.raw_dir / images_dir / indices_dir`
+- `model.cae.latent_dim`
+- `strategy.scoring`（多因子评分权重）
+- `web.port`
+- `agent.llm.model`
+
+环境变量：
+- `.env` 中配置 `GOOGLE_API_KEY` 或 `GEMINI_API_KEY`
+
+---
+
+<a id="zh-structure"></a>
+## 项目结构与模块索引
+
+```
+VisionQuant-Pro/
+├─ config/                     # 配置文件
+├─ data/                       # 数据目录（raw/images/indices/...）
+├─ docs/                       # 文档与截图
+├─ scripts/                    # 训练/索引/标签构建脚本
+├─ src/
+│  ├─ models/                  # AttentionCAE/QuantCAE/SimCLR
+│  ├─ data/                    # DataLoader/数据源/质量检查
+│  ├─ strategies/              # 因子/组合/回测策略
+│  ├─ factor_analysis/         # IC/Regime/Decay等
+│  ├─ utils/                   # 可视化、工具函数
+│  └─ agent/                   # AI Agent
+├─ web/                        # Streamlit UI + FastAPI
+├─ run.py                      # Web启动脚本
+└─ README.md                   # 本文档
+```
+
+---
+
+<a id="zh-quickstart"></a>
 ## 快速开始
 
-### 前置条件
-
-**重要提示**：新代码（阶段1-8）大部分是框架代码，需要先运行/训练才能使用。但现有的Web应用（v1.5）可以直接运行（如果已有模型和索引）。
-
-**检查现有资源**：
+### 1) 安装依赖
 ```bash
-# 检查模型文件
-ls data/models/attention_cae*.pth
-
-# 检查FAISS索引
-ls data/indices/cae_faiss.bin
-
-# 检查K线图数据
-ls data/images/ | wc -l  # 应该接近40万
+git clone https://github.com/panyisheng095-ux/VisionQuant-Pro.git
+cd VisionQuant-Pro
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-### 安装
+### 2) 运行Web界面
+```bash
+python run.py
+# 或
+PYTHONPATH=. streamlit run web/app.py --server.port 8501
+```
+访问：`http://localhost:8501`
+
+---
+
+<a id="zh-pipeline"></a>
+## 完整数据流水线与脚本
+
+### 1) 数据准备
+```bash
+python scripts/prepare_data.py
+```
+
+### 2) 构建K线图像数据集（百万级）
+```bash
+python scripts/build_kline_image_dataset.py --start-date 20100101 --end-date 20251231 --stride 8 --target-images 1000000
+```
+
+### 3) 训练AttentionCAE
+```bash
+python scripts/train_attention_cae.py
+```
+
+### 4) 重建FAISS索引
+```bash
+python scripts/rebuild_index_attention.py
+```
+
+### 5) 计算Triple Barrier标签
+```bash
+python scripts/batch_triple_barrier.py
+```
+
+### 6) 重新计算历史胜率
+```bash
+python scripts/recalculate_win_rates.py
+```
+
+---
+
+<a id="zh-api"></a>
+## API服务（FastAPI）
+
+```bash
+uvicorn web.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+- API 内部复用单例引擎（减少加载开销）
+- 提供Top10检索、因子分析、组合优化、新闻与AI接口
+
+---
+
+<a id="zh-history"></a>
+## 版本历史与路线
+
+- v1.0：K线视觉检索 + Top10对比 + 评分系统
+- v1.5：修复交互与统计、组合优化增强
+- v2.0：因子分析框架、Triple Barrier标签体系
+- v3.x：工业级性能与稳定性强化（延迟加载/并行计算/多源容错）
+
+---
+
+<a id="zh-risk"></a>
+## 风险提示与许可证
+
+- **本项目仅供研究与学习，不构成任何投资建议**
+- 历史表现不代表未来收益
+- 量化交易存在显著风险，请自行评估
+
+许可证：MIT（详见 `LICENSE`）
+
+---
+
+<a id="zh-reference"></a>
+## 引用与致谢
+
+```bibtex
+@software{visionquant-pro,
+  title = {VisionQuant-Pro: AI-Powered K-Line Pattern Research System},
+  author = {Pan, Yisheng},
+  year = {2026},
+  url = {https://github.com/panyisheng095-ux/VisionQuant-Pro}
+}
+```
+
+致谢：PyTorch / FAISS / Streamlit / FastAPI / AkShare / Google News
+
+---
+
+<a id="readme-en"></a>
+# README (English, Full)
+
+> Goal: build an **industrial-grade** quant research system with emphasis on **performance, robustness, interpretability, and reproducibility**. This README documents principles, pipeline, modules, and key optimizations in detail.
+
+## Table of Contents (English)
+- [Positioning & Goals](#en-overview)
+- [Scientific Foundations](#en-theory)
+- [Design Philosophy & Magic Moments](#en-philosophy)
+- [System Architecture](#en-architecture)
+- [Data Engineering & Quality Control](#en-data)
+- [K-Line Images & Multi-Scale Generation](#en-images)
+- [Visual Representation Learning](#en-model)
+- [Indexing & Metadata](#en-index)
+- [Retrieval & DTW-Driven Re-Ranking](#en-search)
+- [Multi-Scale Fusion](#en-multiscale)
+- [Top10 Explainability](#en-top10)
+- [K-Line Factor & Triple Barrier](#en-factor)
+- [Factor Effectiveness Analysis](#en-factor-analysis)
+- [Backtesting & Strict No-Future](#en-backtest)
+- [Portfolio Construction](#en-portfolio)
+- [News & AI Agent Reliability](#en-agent)
+- [Performance Optimization Checklist](#en-optimizations)
+- [Robustness & Fallbacks](#en-robustness)
+- [Configuration & Env Vars](#en-config)
+- [Project Structure](#en-structure)
+- [Quick Start](#en-quickstart)
+- [Full Pipeline Scripts](#en-pipeline)
+- [API Service](#en-api)
+- [History & Roadmap](#en-history)
+- [Risk & License](#en-risk)
+
+---
+
+<a id="en-overview"></a>
+## Positioning & Goals
+
+**VisionQuant-Pro** is an AI-powered quant research system centered on **visual K-line pattern learning**. It transforms visual patterns into a **quantitative factor** and provides a transparent Top10 historical match view instead of opaque prediction outputs.
+
+Primary goals:
+- **Performance**: scalable retrieval and analysis under large index sizes.
+- **Robustness**: multi-source data with reliable fallbacks and retry logic.
+- **Accuracy**: DTW and price-shape constraints to reduce false similarity.
+- **Explainability**: Top10 historical evidence + statistics + factor curves.
+
+---
+
+<a id="en-theory"></a>
+## Scientific Foundations
+
+Multi-disciplinary support:
+- **Behavioral finance**: representativeness, anchoring, herding.
+- **Technical analysis**: pattern recognition, support/resistance, trend continuation.
+- **Market microstructure**: liquidity, order flow, information diffusion.
+- **Machine learning**: unsupervised representation learning (CAE).
+- **Factor research methodology**: IC/Sharpe/Regime/Decay.
+
+---
+
+<a id="en-philosophy"></a>
+## Design Philosophy & Magic Moments
+
+Magic Moment 1: Replace “prediction” with **historical evidence** (Top10 most similar patterns + outcomes).
+
+Magic Moment 2: Treat visual patterns as a **factor**, evaluated by IC/Sharpe/Decay.
+
+Magic Moment 3: **Dynamic** weighting and factor invalidation detection.
+
+Principles:
+- Transparency > black-box accuracy
+- Evidence from history > subjective prediction
+- Factors > one-off models
+- Dynamic > static rules
+
+---
+
+<a id="en-architecture"></a>
+## System Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        VisionQuant-Pro                        │
+│            AI K-Line Pattern Learning + Research System        │
+└──────────────────────────────────────────────────────────────┘
+  Data → Images → CAE → FAISS → DTW/Price Re-rank → Top10
+      → K-Line Factor → IC/Sharpe/Decay → Backtest → Portfolio
+```
+
+---
+
+<a id="en-data"></a>
+## Data Engineering & Quality Control
+
+### 1) Multi-source data abstraction
+- Unified access via `DataLoader`: AkShare / JQData / RQData.
+- Automatic fallback to AkShare when upstream is unavailable.
+
+### 2) Data quality checks
+- Column completeness (Open/High/Low/Close/Volume)
+- Missing values, OHLC consistency, extreme moves, volume anomalies
+- Returns a quality score and diagnostics
+
+### 3) Multi-level caching
+- **Disk cache**: `data/raw/*.csv`
+- **Memory LRU**: reduces repeated I/O (`mem_cache_max` configurable)
+- **Range fill**: fetch earlier/later ranges if cache is incomplete
+
+### 4) Date handling
+- Default start date `20100101`
+- Auto range correction when end < start
+
+---
+
+<a id="en-images"></a>
+## K-Line Images & Multi-Scale Generation
+
+### 1) Image dataset building
+- `scripts/build_kline_image_dataset.py` for large-scale generation
+- Supports `start-date`, `end-date`, `stride`, `target-images`
+- Output: `data/images/` or `data/images_v2/`
+
+### 2) Multi-scale charts
+- `MultiScaleChartGenerator` generates daily/weekly/monthly charts
+- Unified style, no axes, compact size for embedding and retrieval
+
+### 3) Key parameters
+- Window length commonly 20 days for retrieval, configurable for dataset building
+- Image size default `224×224`
+
+---
+
+<a id="en-model"></a>
+## Visual Representation Learning
+
+### 1) AttentionCAE (primary model)
+- CNN encoder + Multi-Head Self-Attention + latent vector + decoder
+- Encoded feature is **L2-normalized** for FAISS similarity
+- Attention weights can be visualized for interpretability
+
+### 2) QuantCAE (fallback)
+- Used when attention weights or model are unavailable
+- High-dimensional features are pooled to stable embeddings
+
+### 3) SimCLR (optional enhancement)
+- Contrastive learning trainer available in `src/models/simclr_trainer.py`
+
+---
+
+<a id="en-index"></a>
+## Indexing & Metadata
+
+### 1) FAISS index files
+- Attention index preferred: `data/indices/cae_faiss_attention.bin`
+- Fallback index: `data/indices/cae_faiss.bin`
+
+### 2) Metadata
+- `meta_data_attention.csv` / `meta_data.csv`
+- Stores `symbol`, `date`, `path` for fast image resolution
+
+### 3) Index-model alignment
+- Model mode automatically aligned with index mode
+
+### 4) Fast metadata loading
+- CSV loading with `engine='c'` and `low_memory=False`
+
+### 5) In-memory path map
+- `(symbol, date) -> path` map to avoid expensive glob scans
+
+---
+
+<a id="en-search"></a>
+## Retrieval & DTW-Driven Re-Ranking
+
+### 1) Pipeline
+1. Image → embedding (L2 normalized)
+2. FAISS coarse recall (`search_k`)
+3. DTW + correlation + shape features for re-ranking
+4. Final Top-K
+
+### 2) DTW with constraint
+- Sakoe-Chiba band (window=5) to reduce complexity
+
+### 3) Shape feature vector (8 dims)
+- Trend direction, return, volatility, high/low positions, head/mid/tail trends
+
+### 4) Core scoring (when price series available)
+```
+combined_score = 0.50*dtw_sim + 0.30*corr + 0.15*feat_sim + 0.05*visual_sim
+```
+
+### 5) Trend constraint & time isolation
+- Trend direction must be consistent
+- Same-stock candidates require minimum day gap
+- `max_date` enforces strict no-future
+
+### 6) fast_mode
+- Reduced price checks and smaller search_k for speed-sensitive scenarios
+
+---
+
+<a id="en-multiscale"></a>
+## Multi-Scale Fusion
+
+- Daily/weekly/monthly searches are weighted and merged
+- `symbol,date` key ensures consistent fusion
+- Optional pixel/edge re-rank for visual alignment
+
+---
+
+<a id="en-top10"></a>
+## Top10 Explainability
+
+- Generates “1 query + 10 matches” comparison grid
+- Shows symbol/date/score for each match
+- Robust path resolution with metadata path priority
+
+---
+
+<a id="en-factor"></a>
+## K-Line Factor & Triple Barrier
+
+### 1) Triple Barrier labels
+- Upper: +5%
+- Lower: -3%
+- Max holding: 20 days
+
+### 2) Hybrid win rate
+```
+Hybrid = 0.7*TB_WinRate + 0.3*Traditional_WinRate
+```
+
+### 3) Return distribution
+- Weighted returns distribution, quantiles, CVaR, skewness, kurtosis
+
+---
+
+<a id="en-factor-analysis"></a>
+## Factor Effectiveness Analysis
+
+Outputs:
+- Rolling IC, Sharpe, multi-horizon IC
+- Regime detection and decay analysis
+- Factor invalidation diagnostics
+
+Industrial optimizations:
+- 600-sample parallel computation
+- fast_mode search + limited price checks
+- progress reporting + fallback matching
+
+---
+
+<a id="en-backtest"></a>
+## Backtesting & Strict No-Future
+
+Modes:
+- Simple backtest
+- Walk-Forward validation
+- Stress testing
+
+Strict no-future:
+- `max_date` filters future matches
+- AI win-rate computed per date
+
+Performance:
+- Parallel AI win-rate precompute
+- `ai_stride` reduces frequency of AI calls
+- `ai_fast_mode` reduces retrieval cost
+
+Risk & cost:
+- Advanced transaction cost (commission + slippage + market impact + opportunity cost)
+- A-share constraints: limit up/down, suspension, T+1
+
+---
+
+<a id="en-portfolio"></a>
+## Portfolio Construction
+
+- Markowitz + Black-Litterman optimizer
+- CVaR and max drawdown constraints
+- Core + Enhanced two-tier allocation
+
+---
+
+<a id="en-agent"></a>
+## News & AI Agent Reliability
+
+News:
+- Eastmoney JSONP parsing + retry + timeout control
+- Google News RSS + Yahoo Finance as fallbacks
+- In-memory cache with TTL
+
+AI Agent:
+- Multi-model fallback (Gemini 2.5/2.0/1.5)
+- REST transport for stability
+- Exponential backoff and graceful fallback output
+
+---
+
+<a id="en-optimizations"></a>
+## Performance Optimization Checklist
+
+I/O:
+- In-memory path map for image resolution
+- Faster CSV loading (`engine='c'`)
+- DataLoader LRU cache
+
+Compute:
+- DTW with constraint window
+- Early stop once high-quality candidates are sufficient
+- fast_mode to reduce expensive computation
+- Pixel/edge cache (lightweight re-rank)
+
+Parallelization:
+- Factor analysis thread pool
+- AI win-rate precompute
+
+Runtime:
+- Lazy-loading FAISS index
+- Singleton engines for Streamlit/FastAPI
+
+---
+
+<a id="en-robustness"></a>
+## Robustness & Fallbacks
+
+- Data source failover (AkShare fallback)
+- Nearest-date image fallback for missing charts
+- News cache + multi-source fallback
+- LLM fallback result on connection failure
+
+---
+
+<a id="en-config"></a>
+## Configuration & Env Vars
+
+Config file: `config/config.yaml`
+
+Key sections:
+- `data.*` paths
+- `model.cae.latent_dim`
+- `strategy.scoring` weights
+- `web.port`
+- `agent.llm.model`
+
+Environment:
+- `.env` with `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+
+---
+
+<a id="en-structure"></a>
+## Project Structure
+
+```
+VisionQuant-Pro/
+├─ config/                     # configs
+├─ data/                       # raw/images/indices
+├─ docs/                       # docs and screenshots
+├─ scripts/                    # training/indexing/labels
+├─ src/                        # core modules
+├─ web/                        # Streamlit UI + FastAPI
+└─ run.py                      # launcher
+```
+
+---
+
+<a id="en-quickstart"></a>
+## Quick Start
 
 ```bash
 git clone https://github.com/panyisheng095-ux/VisionQuant-Pro.git
 cd VisionQuant-Pro
-
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
+source venv/bin/activate
 pip install -r requirements.txt
-```
-
-### 运行Web应用（v1.5 - 现有功能）
-
-```bash
-# 如果已有模型和索引，直接运行
 python run.py
-# 或
-PYTHONPATH=. streamlit run web/app.py
 ```
 
-访问：`http://localhost:8501`
+---
 
-### 训练新模型（v2.0 - 新功能）
+<a id="en-pipeline"></a>
+## Full Pipeline Scripts
 
 ```bash
-# 1. 训练AttentionCAE（如果还没有）
+python scripts/build_kline_image_dataset.py --start-date 20100101 --end-date 20251231 --stride 8 --target-images 1000000
 python scripts/train_attention_cae.py
-
-# 2. 批量计算Triple Barrier标签
-python scripts/batch_triple_barrier.py
-
-# 3. 重建FAISS索引（如果使用新模型）
 python scripts/rebuild_index_attention.py
-
-# 4. 运行因子分析（可选）
-python -c "from src.factor_analysis import *; ..."
+python scripts/batch_triple_barrier.py
+python scripts/recalculate_win_rates.py
 ```
 
-### 使用新功能
+---
 
-**因子分析页面**（阶段8）：
+<a id="en-api"></a>
+## API Service
+
 ```bash
-# 访问因子分析页面
-streamlit run web/pages/factor_analysis.py
-```
-
-**分层回测**（阶段6）：
-```python
-from src.backtest import StratifiedBacktester
-# 使用示例见 src/backtest/stratified_backtester.py
+uvicorn web.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ---
 
-## 版本历史
+<a id="en-history"></a>
+## History & Roadmap
 
-### v2.0 (2024-12) - K线学习因子深化
-
-**核心改进**：将K线视觉学习包装成"量化因子"，建立完整的因子研究框架
-
-#### 阶段1: 胜率计算重构
-- ✅ 混合胜率计算（Triple Barrier 70% + 传统 30%）
-- ✅ HDF5标签存储（快速查询）
-- ✅ 40万数据处理优化（多进程并行）
-
-#### 阶段2: 因子有效性分析框架
-- ✅ Rolling IC/Sharpe分析
-- ✅ Regime识别（牛市/熊市/震荡）
-- ✅ 因子衰减分析
-- ✅ 拥挤交易检测（HHI指数）
-- ✅ 风险补偿分析
-- ✅ 行业分层分析
-- ✅ 因子失效多维度检测
-- ✅ 动态权重管理系统
-
-#### 阶段3: 专业数据源接入
-- ✅ 数据源抽象层（统一接口）
-- ✅ 聚宽/米筐适配器
-- ✅ 数据源切换逻辑
-- ✅ 数据质量检查器
-
-#### 阶段4: K线学习精度提升
-- ✅ 特征维度提升（支持2048维）
-- ✅ 多尺度K线图生成（日线/周线/月线）
-- ✅ 双流网络优化（视觉+时序融合）
-- ✅ SimCLR对比学习
-- ✅ 模型集成（多模型融合）
-
-#### 阶段5: 动态权重管理系统
-- ✅ Regime管理器
-- ✅ 权重配置表（YAML）
-- ✅ 评分系统重构（集成动态权重）
-- ✅ 权重回测验证
-
-#### 阶段6: 分层回测系统
-- ✅ 股票分层逻辑（市值×行业）
-- ✅ 分层回测引擎
-- ✅ 结果汇总和可视化
-- ✅ Walk-Forward可选模式
-- ✅ Stress Testing（极端市场测试）
-
-#### 阶段7: 因子研究框架完善
-- ✅ 行为偏差分析
-- ✅ 信息扩散分析
-- ✅ 因子相关性分析
-- ✅ 因子稳定性分析
-- ✅ 因子组合优化
-- ✅ 理论基础文档完善
-
-#### 阶段8: Streamlit UI增强
-- ✅ 因子分析主页面
-- ✅ IC/Sharpe曲线图
-- ✅ Regime识别图
-- ✅ 拥挤交易热力图
-- ✅ 风险补偿散点图
-- ✅ 行业IC对比表
-- ✅ PDF报告导出
-
-**技术栈**：
-- 新增：`src/factor_analysis/`, `src/factor_research/`, `src/backtest/`
-- 新增：`config/factor_weights.yaml`
-- 增强：`src/models/attention_cae.py`（支持更高维度）
-- 增强：`src/strategies/factor_mining.py`（动态权重）
+- v1.0: Top10 retrieval + scoring
+- v2.0: factor framework + Triple Barrier
+- v3.x: industrial-grade optimization & robustness
 
 ---
 
-### v1.5 (2024-11) - 功能完善
+<a id="en-risk"></a>
+## Risk & License
 
-**核心改进**：完善Top10对比、修复bug、增强用户体验
-
-- ✅ 修复单股票分析锁定问题
-- ✅ 修复回测功能
-- ✅ 增强Top10统计信息（胜率、平均收益、最大回撤）
-- ✅ 优化批量分析性能
-- ✅ 完善组合优化（Markowitz模型）
-
-**技术栈**：
-- 修复：`web/app.py`（Session State管理）
-- 增强：`src/utils/visualizer.py`（Top10统计）
-- 新增：`src/strategies/portfolio_optimizer.py`
-
----
-
-### v1.0 (2024-10) - 初始版本
-
-**核心功能**：Top10历史形态对比、V+F+Q评分、凯利仓位
-
-- ✅ AttentionCAE模型训练
-- ✅ 40万张K线图索引构建
-- ✅ FAISS相似度检索
-- ✅ Top10历史形态对比
-- ✅ V+F+Q多因子评分
-- ✅ 凯利公式仓位建议
-- ✅ Streamlit Web界面
-
-**技术栈**：
-- `src/models/attention_cae.py`
-- `src/models/vision_engine.py`
-- `src/strategies/factor_mining.py`
-- `web/app.py`
-
----
-
-## 引用与致谢
-
-### 学术引用
-
-```bibtex
-@software{visionquant-pro,
-  title = {VisionQuant-Pro: AI-Powered K-Line Pattern Investment System},
-  author = {Pan, Yisheng},
-  year = {2026},
-  url = {https://github.com/panyisheng095-ux/VisionQuant-Pro},
-  note = {基于K线视觉学习的智能投研系统，融合行为金融学、技术分析和机器学习理论}
-}
-```
-
-### 参考文献
-
-1. Chen, T., et al. (2020). A Simple Framework for Contrastive Learning of Visual Representations. *ICML*.
-2. Kahneman, D., & Tversky, A. (1979). Prospect theory: An analysis of decision under risk. *Econometrica*.
-3. Lo, A. W. (2004). The adaptive markets hypothesis. *Journal of Portfolio Management*.
-
-### 致谢
-
-- PyTorch团队：深度学习框架
-- Facebook AI Research：FAISS相似度检索
-- Streamlit团队：Web应用框架
-- 所有贡献者和用户
-
----
-
-## ⚠️ 风险提示
-
-1. **本项目仅供学习和研究使用，不构成任何投资建议**
-2. 历史表现不代表未来收益
-3. 量化交易存在显著风险
-4. 请根据自身风险承受能力做出投资决策
-
----
-
-## 📄 许可证
-
-MIT License - 详见 [LICENSE](LICENSE)
-
----
-
-<div align="center">
-
-**如果这个项目对你有帮助，请给一个 ⭐ Star！**
-
-Made with ❤️ by [panyisheng095-ux](https://github.com/panyisheng095-ux)
-
-</div>
+- Research only; no investment advice
+- Past performance does not guarantee future returns
+- Licensed under MIT
